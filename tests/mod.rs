@@ -1,12 +1,24 @@
-//! Integration tests for the OpenZeppelin Monitor.
+//! Integration and PBT tests for the OpenZeppelin Monitor.
 //!
 //! Contains tests for blockchain monitoring functionality across different
 //! chains (EVM and Stellar) and mock implementations for testing.
 
-pub mod mocks;
+mod properties {
+	mod matching;
+	mod notification;
+	mod repositories {
+		mod monitor;
+		mod network;
+		mod trigger;
+	}
+	mod strategies;
+}
 
-mod filter {
-    mod common;
-    mod evm;
-    mod stellar;
+mod integration {
+	mod mocks;
+	mod filter {
+		mod common;
+		mod evm;
+		mod stellar;
+	}
 }

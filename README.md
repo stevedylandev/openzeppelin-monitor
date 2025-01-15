@@ -210,8 +210,17 @@ cargo run
 ### Run Tests
 
 ```bash
-cargo test -- --nocapture
+cargo test
+cargo test properties
+cargo test integration
 ```
+
+### Developer setup
+
+1. Run `chmod +x .githooks/*` to make the git hooks executable.
+2. Run `git config core.hooksPath .githooks` to setup git hooks for linting and formatting.
+3. Run `rustup toolchain install nightly` to install the nightly toolchain.
+4. Run `rustup component add rustfmt --toolchain nightly` to install rustfmt for the nightly toolchain.
 
 ## Project Structure
 
@@ -227,8 +236,14 @@ cargo test -- --nocapture
 ## Caveats
 
 - This software is in alpha. Use in production environments at your own risk.
+- EVM monitors require an ABI to decode and trigger on contract events and functions.
 - Monitor performance depends on network congestion and RPC endpoint reliability.
-- Past block processing is limited by `max_past_blocks` in network configuration (default: 10).
+- The `max_past_blocks` configuration is critical to prevent missing blocks:
+  - Should be approximately calculated as: `(cron_interval_ms/block_time_ms) + confirmation_blocks + 1` (defaults to this value if not set)
+  - Example: For 1-minute cron on Ethereum (~12s blocks, 12 confirmation blocks):
+    - `(60000/12000) + 12 + 1 = 18 blocks`
+  - Setting this too low may result in missed blocks, especially on fast networks
+  - Consider network congestion and block time variability when configuring
 - For email notifications, the `port` field is optional and defaults to 465.
 - Template variable availability depends on the trigger source:
   - If triggered by an event, only event variables will be populated.
