@@ -33,7 +33,7 @@ use crate::{
 
 /// Represents a mapping between a Stellar event and its transaction hash
 #[derive(Debug)]
-struct EventMap {
+pub struct EventMap {
 	pub event: StellarMatchParamsMap,
 	pub tx_hash: String,
 }
@@ -48,7 +48,7 @@ impl StellarBlockFilter {
 	/// * `transaction` - The Stellar transaction to check
 	/// * `monitor` - The monitor containing match conditions
 	/// * `matched_transactions` - Vector to store matching transactions
-	fn find_matching_transaction(
+	pub fn find_matching_transaction(
 		&self,
 		transaction: &StellarTransaction,
 		monitor: &Monitor,
@@ -119,35 +119,54 @@ impl StellarBlockFilter {
 
 				if status_matches {
 					if let Some(expr) = &condition.expression {
-						for operation in &tx_operations {
-							// Create a vector of transaction parameters
-							let tx_params = vec![
-								StellarMatchParamEntry {
-									name: "value".to_string(),
-									value: operation.value.clone().unwrap_or("0".to_string()),
-									kind: "i64".to_string(),
-									indexed: false,
-								},
-								StellarMatchParamEntry {
-									name: "from".to_string(),
-									value: operation.sender.clone(),
-									kind: "address".to_string(),
-									indexed: false,
-								},
-								StellarMatchParamEntry {
-									name: "to".to_string(),
-									value: operation.receiver.clone(),
-									kind: "address".to_string(),
-									indexed: false,
-								},
-							];
+						// Create base transaction parameters outside operation loop
+						let base_params = vec![StellarMatchParamEntry {
+							name: "hash".to_string(),
+							value: transaction.hash().clone(),
+							kind: "string".to_string(),
+							indexed: false,
+						}];
 
-							if self.evaluate_expression(expr, &Some(tx_params)) {
+						// If we have operations, check each one
+						if !tx_operations.is_empty() {
+							for operation in &tx_operations {
+								let mut tx_params = base_params.clone();
+								tx_params.extend(vec![
+									StellarMatchParamEntry {
+										name: "value".to_string(),
+										value: operation.value.clone().unwrap_or("0".to_string()),
+										kind: "i64".to_string(),
+										indexed: false,
+									},
+									StellarMatchParamEntry {
+										name: "from".to_string(),
+										value: operation.sender.clone(),
+										kind: "address".to_string(),
+										indexed: false,
+									},
+									StellarMatchParamEntry {
+										name: "to".to_string(),
+										value: operation.receiver.clone(),
+										kind: "address".to_string(),
+										indexed: false,
+									},
+								]);
+
+								if self.evaluate_expression(expr, &Some(tx_params)) {
+									matched_transactions.push(TransactionCondition {
+										expression: Some(expr.clone()),
+										status: tx_status,
+									});
+									break;
+								}
+							}
+						} else {
+							// Even with no operations, still evaluate base parameters
+							if self.evaluate_expression(expr, &Some(base_params)) {
 								matched_transactions.push(TransactionCondition {
 									expression: Some(expr.clone()),
 									status: tx_status,
 								});
-								break;
 							}
 						}
 					} else {
@@ -171,7 +190,7 @@ impl StellarBlockFilter {
 	/// * `monitor` - The monitor containing match conditions
 	/// * `matched_functions` - Vector to store matching functions
 	/// * `matched_on_args` - Arguments that matched the conditions
-	fn find_matching_functions_for_transaction(
+	pub fn find_matching_functions_for_transaction(
 		&self,
 		monitored_addresses: &[String],
 		transaction: &StellarTransaction,
@@ -257,7 +276,7 @@ impl StellarBlockFilter {
 	/// * `monitor` - The monitor containing match conditions
 	/// * `matched_events` - Vector to store matching events
 	/// * `matched_on_args` - Arguments that matched the conditions
-	fn find_matching_events_for_transaction(
+	pub fn find_matching_events_for_transaction(
 		&self,
 		events: &[EventMap],
 		transaction: &StellarTransaction,
@@ -322,7 +341,7 @@ impl StellarBlockFilter {
 	///
 	/// # Returns
 	/// Vector of decoded events mapped to their transaction hashes
-	async fn decode_events(
+	pub async fn decode_events(
 		&self,
 		events: &Vec<StellarEvent>,
 		monitored_addresses: &[String],
@@ -750,7 +769,7 @@ impl StellarBlockFilter {
 	///
 	/// # Returns
 	/// Boolean indicating if the expression evaluates to true
-	fn evaluate_expression(
+	pub fn evaluate_expression(
 		&self,
 		expression: &str,
 		args: &Option<Vec<StellarMatchParamEntry>>,
@@ -817,7 +836,8 @@ impl StellarBlockFilter {
 					}
 
 					let [map_name, key] = [parts[0], parts[1]];
-					let Some(param) = args.iter().find(|p| p.value == map_name) else {
+
+					let Some(param) = args.iter().find(|p| p.name == map_name) else {
 						warn!("Map {} not found", map_name);
 						return false;
 					};
@@ -861,7 +881,7 @@ impl StellarBlockFilter {
 	///
 	/// # Returns
 	/// Vector of converted parameter entries
-	fn convert_arguments_to_match_param_entry(
+	pub fn convert_arguments_to_match_param_entry(
 		&self,
 		arguments: &[Value],
 	) -> Vec<StellarMatchParamEntry> {
@@ -909,7 +929,11 @@ impl StellarBlockFilter {
 							Value::Bool(_) => "Bool".to_string(),
 							_ => "String".to_string(),
 						},
-						value: arg.as_str().unwrap_or("").to_string(),
+						value: match arg {
+							Value::Number(n) => n.to_string(),
+							Value::Bool(b) => b.to_string(),
+							_ => arg.as_str().unwrap_or("").to_string(),
+						},
 						indexed: false,
 					});
 				}
