@@ -4,6 +4,8 @@
 //! supporting operations like block retrieval, transaction lookup, and event filtering.
 //! It works with both Stellar Core nodes and Horizon API endpoints.
 
+use std::marker::PhantomData;
+
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -11,8 +13,13 @@ use crate::{
 	models::{
 		BlockType, Network, StellarBlock, StellarEvent, StellarTransaction, StellarTransactionInfo,
 	},
-	services::blockchain::{
-		client::BlockChainClient, transports::StellarTransportClient, BlockChainError,
+	services::{
+		blockchain::{
+			client::{BlockChainClient, BlockFilterFactory},
+			transports::StellarTransportClient,
+			BlockChainError,
+		},
+		filter::StellarBlockFilter,
 	},
 	utils::WithRetry,
 };
@@ -21,6 +28,7 @@ use crate::{
 ///
 /// Provides high-level access to Stellar blockchain data and operations through
 /// both Stellar Core RPC and Horizon API endpoints.
+#[derive(Clone)]
 pub struct StellarClient {
 	/// The underlying Stellar transport client for RPC communication
 	stellar_client: StellarTransportClient,
@@ -47,7 +55,7 @@ impl StellarClient {
 
 /// Extended functionality specific to the Stellar blockchain
 #[async_trait]
-pub trait StellarClientTrait: BlockChainClient {
+pub trait StellarClientTrait {
 	/// Retrieves transactions within a sequence range
 	///
 	/// # Arguments
@@ -222,6 +230,16 @@ impl StellarClientTrait for StellarClient {
 		}
 
 		Ok(events)
+	}
+}
+
+impl BlockFilterFactory<StellarClient> for StellarClient {
+	type Filter = StellarBlockFilter<Self>;
+
+	fn filter() -> Self::Filter {
+		StellarBlockFilter {
+			_client: PhantomData {},
+		}
 	}
 }
 

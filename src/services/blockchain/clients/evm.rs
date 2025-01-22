@@ -4,14 +4,19 @@
 //! blockchains, supporting operations like block retrieval, transaction receipt lookup,
 //! and log filtering.
 
+use std::marker::PhantomData;
+
 use async_trait::async_trait;
 use web3::types::{BlockId, BlockNumber};
 
 use crate::{
 	models::{BlockType, EVMBlock, Network},
 	services::{
-		blockchain::{client::BlockChainClient, transports::Web3TransportClient, BlockChainError},
-		filter::helpers::evm::string_to_h256,
+		blockchain::{
+			client::BlockChainClient, transports::Web3TransportClient, BlockChainError,
+			BlockFilterFactory,
+		},
+		filter::{helpers::evm::string_to_h256, EVMBlockFilter},
 	},
 	utils::WithRetry,
 };
@@ -20,6 +25,7 @@ use crate::{
 ///
 /// Provides high-level access to EVM blockchain data and operations through Web3
 /// transport layer.
+#[derive(Clone)]
 pub struct EvmClient {
 	/// The underlying Web3 transport client for RPC communication
 	web3_client: Web3TransportClient,
@@ -44,9 +50,18 @@ impl EvmClient {
 	}
 }
 
+impl BlockFilterFactory<Self> for EvmClient {
+	type Filter = EVMBlockFilter<Self>;
+	fn filter() -> Self::Filter {
+		EVMBlockFilter {
+			_client: PhantomData,
+		}
+	}
+}
+
 /// Extended functionality specific to EVM-compatible blockchains
 #[async_trait]
-pub trait EvmClientTrait: BlockChainClient {
+pub trait EvmClientTrait {
 	/// Retrieves a transaction receipt by its hash
 	///
 	/// # Arguments

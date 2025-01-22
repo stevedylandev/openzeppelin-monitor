@@ -23,35 +23,30 @@ pub mod repositories;
 pub mod services;
 pub mod utils;
 
-pub use models::{ConfigLoader, Monitor, Network, Trigger};
-pub use repositories::{
-	MonitorRepository, MonitorService, NetworkRepository, NetworkService, TriggerRepository,
-	TriggerService,
-};
-pub use services::{
-	blockwatcher::{BlockTracker, BlockWatcherService, FileBlockStorage},
-	filter::FilterService,
-	notification::{Notifier, SlackNotifier},
-};
-
 use crate::{
-	models::BlockType,
+	models::{BlockChainType, BlockType, Monitor, Network},
+	repositories::{
+		MonitorRepository, MonitorService, NetworkRepository, NetworkService, TriggerRepository,
+		TriggerService,
+	},
 	services::{
-		blockchain::create_blockchain_client, filter::handle_match,
-		notification::NotificationService, trigger::TriggerExecutionService,
+		blockchain::{BlockFilterFactory, EvmClient, StellarClient},
+		blockwatcher::{BlockTracker, BlockWatcherService, FileBlockStorage},
+		filter::{handle_match, FilterService},
+		notification::NotificationService,
+		trigger::TriggerExecutionService,
 	},
 };
 
 use dotenvy::dotenv;
 use log::{error, info};
+use services::blockchain::BlockChainClient;
 use std::{collections::HashMap, error::Error, sync::Arc};
 use tokio::sync::broadcast;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-type BlockHandlerFn = Arc<dyn Fn(&BlockType, &Network) + Send + Sync>;
 type ServiceResult = Result<(
 	Arc<FilterService>,
-	Arc<NetworkService<NetworkRepository>>,
 	Arc<TriggerExecutionService<TriggerRepository>>,
 	Vec<Monitor>,
 	HashMap<String, Network>,
@@ -67,7 +62,7 @@ async fn main() -> Result<()> {
 	dotenv().ok();
 	env_logger::init();
 
-	let (filter_service, network_service, trigger_execution_service, active_monitors, networks) =
+	let (filter_service, trigger_execution_service, active_monitors, networks) =
 		initialize_services()?;
 
 	let networks_with_monitors: Vec<Network> = networks
@@ -91,8 +86,7 @@ async fn main() -> Result<()> {
 	);
 
 	let file_block_storage = Arc::new(FileBlockStorage::default());
-	let block_watcher = BlockWatcherService::<NetworkRepository, FileBlockStorage>::new(
-		network_service,
+	let block_watcher = BlockWatcherService::new(
 		file_block_storage.clone(),
 		block_handler,
 		Arc::new(BlockTracker::new(1000, Some(file_block_storage.clone()))),
@@ -100,7 +94,19 @@ async fn main() -> Result<()> {
 	.await?;
 
 	for network in networks_with_monitors {
-		block_watcher.start_network_watcher(&network).await?;
+		match network.network_type {
+			BlockChainType::EVM => {
+				let client = EvmClient::new(&network).await?;
+				let _ = block_watcher.start_network_watcher(&network, client).await;
+			}
+
+			BlockChainType::Stellar => {
+				let client = StellarClient::new(&network).await?;
+				let _ = block_watcher.start_network_watcher(&network, client).await;
+			}
+			BlockChainType::Midnight => unimplemented!("Midnight not implemented"),
+			BlockChainType::Solana => unimplemented!("Solana not implemented"),
+		}
 	}
 
 	info!("Service started. Press Ctrl+C to shutdown");
@@ -163,7 +169,6 @@ fn initialize_services() -> ServiceResult {
 
 	Ok((
 		filter_service,
-		Arc::new(network_service),
 		trigger_execution_service,
 		active_monitors,
 		networks,
@@ -185,7 +190,7 @@ fn create_block_handler(
 	trigger_service: Arc<TriggerExecutionService<TriggerRepository>>,
 	filter_service: Arc<FilterService>,
 	active_monitors: Vec<Monitor>,
-) -> BlockHandlerFn {
+) -> Arc<impl Fn(&BlockType, &Network) + Send + Sync> {
 	Arc::new(move |block: &BlockType, network: &Network| {
 		let mut shutdown_rx = shutdown_tx.subscribe();
 		let trigger_service = trigger_service.clone();
@@ -203,15 +208,43 @@ fn create_block_handler(
 				return;
 			}
 
-			process_block(
-				&network,
-				&block,
-				&applicable_monitors,
-				&filter_service,
-				&trigger_service,
-				&mut shutdown_rx,
-			)
-			.await;
+			match network.network_type {
+				BlockChainType::EVM => {
+					let Ok(client) = EvmClient::new(&network).await else {
+						error!("Failure while creating EVM client");
+						return;
+					};
+					process_block(
+						&client,
+						&network,
+						&block,
+						&applicable_monitors,
+						&filter_service,
+						&trigger_service,
+						&mut shutdown_rx,
+					)
+					.await;
+				}
+
+				BlockChainType::Stellar => {
+					let Ok(client) = StellarClient::new(&network).await else {
+						error!("Failure while creating Stellar client");
+						return;
+					};
+					process_block(
+						&client,
+						&network,
+						&block,
+						&applicable_monitors,
+						&filter_service,
+						&trigger_service,
+						&mut shutdown_rx,
+					)
+					.await;
+				}
+				BlockChainType::Midnight => unimplemented!("Midnight not implemented"),
+				BlockChainType::Solana => unimplemented!("Solana not implemented"),
+			}
 		});
 	})
 }
@@ -225,24 +258,19 @@ fn create_block_handler(
 /// * `filter_service` - Service for filtering blockchain data
 /// * `trigger_service` - Service for executing triggers
 /// * `shutdown_rx` - Receiver for shutdown signals
-async fn process_block(
+async fn process_block<T>(
+	client: &T,
 	network: &Network,
 	block: &BlockType,
 	applicable_monitors: &[Monitor],
 	filter_service: &FilterService,
 	trigger_service: &TriggerExecutionService<TriggerRepository>,
 	shutdown_rx: &mut broadcast::Receiver<()>,
-) {
-	let client = match create_blockchain_client(network).await {
-		Ok(client) => client,
-		Err(e) => {
-			error!("Failed to create blockchain client: {}", e);
-			return;
-		}
-	};
-
+) where
+	T: BlockChainClient + BlockFilterFactory<T>,
+{
 	tokio::select! {
-		result = filter_service.filter_block(&client, network, block, applicable_monitors) => {
+		result = filter_service.filter_block(client, network, block, applicable_monitors) => {
 			match result {
 				Ok(matches) => {
 					for matching_monitor in matches {

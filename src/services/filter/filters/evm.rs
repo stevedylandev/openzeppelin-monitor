@@ -11,8 +11,8 @@ use async_trait::async_trait;
 use ethabi::Contract;
 use log::{info, warn};
 use serde_json::Value;
-use std::str::FromStr;
-use web3::types::{Log, Transaction, TransactionReceipt};
+use std::{marker::PhantomData, str::FromStr};
+use web3::types::{Log, Transaction, TransactionReceipt, U64};
 
 use crate::{
 	models::{
@@ -21,7 +21,7 @@ use crate::{
 		Monitor, MonitorMatch, Network, TransactionCondition, TransactionStatus,
 	},
 	services::{
-		blockchain::BlockChainClientEnum,
+		blockchain::{BlockChainClient, EvmClientTrait},
 		filter::{
 			helpers::evm::{
 				are_same_address, are_same_signature, format_token_value, h160_to_string,
@@ -33,9 +33,11 @@ use crate::{
 };
 
 /// Filter implementation for EVM-compatible blockchains
-pub struct EVMBlockFilter {}
+pub struct EVMBlockFilter<T> {
+	pub _client: PhantomData<T>,
+}
 
-impl EVMBlockFilter {
+impl<T> EVMBlockFilter<T> {
 	/// Finds transactions that match the monitor's conditions.
 	///
 	/// # Arguments
@@ -437,7 +439,7 @@ impl EVMBlockFilter {
 		// Create contract object from ABI
 		let contract = Contract::load(abi.to_string().as_bytes())
 			.map_err(|e| FilterError::internal_error(format!("Failed to parse ABI: {}", e)))
-			.unwrap();
+			.ok()?;
 
 		let decoded_log = contract
 			.events()
@@ -487,7 +489,8 @@ impl EVMBlockFilter {
 }
 
 #[async_trait]
-impl BlockFilter for EVMBlockFilter {
+impl<T: BlockChainClient + EvmClientTrait> BlockFilter for EVMBlockFilter<T> {
+	type Client = T;
 	/// Processes a block and finds matches based on monitor conditions.
 	///
 	/// # Arguments
@@ -500,7 +503,7 @@ impl BlockFilter for EVMBlockFilter {
 	/// Vector of matches found in the block
 	async fn filter_block(
 		&self,
-		client: &BlockChainClientEnum,
+		client: &T,
 		_network: &Network,
 		block: &BlockType,
 		monitors: &[Monitor],
@@ -514,16 +517,10 @@ impl BlockFilter for EVMBlockFilter {
 			}
 		};
 
-		info!("Processing block {}", evm_block.number.unwrap());
-
-		let evm_client = match client {
-			BlockChainClientEnum::EVM(client) => client,
-			_ => {
-				return Err(FilterError::internal_error(
-					"Expected EVM client".to_string(),
-				));
-			}
-		};
+		info!(
+			"Processing block {}",
+			evm_block.number.unwrap_or(U64::from(0))
+		);
 
 		// Process all transaction receipts in parallel
 		let receipt_futures: Vec<_> = evm_block
@@ -531,7 +528,7 @@ impl BlockFilter for EVMBlockFilter {
 			.iter()
 			.map(|transaction| {
 				let tx_hash = h256_to_string(transaction.hash);
-				evm_client.get_transaction_receipt(tx_hash)
+				client.get_transaction_receipt(tx_hash)
 			})
 			.collect();
 
