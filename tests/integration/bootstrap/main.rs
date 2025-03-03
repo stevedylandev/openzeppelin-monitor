@@ -5,7 +5,7 @@ use crate::integration::{
 	},
 	mocks::{
 		create_test_block, create_test_network, MockClientPool, MockEvmClientTrait,
-		MockStellarClientTrait,
+		MockStellarClientTrait, MockWeb3TransportClient,
 	},
 };
 use openzeppelin_monitor::{
@@ -206,7 +206,7 @@ async fn test_create_trigger_handler() {
 
 #[tokio::test]
 async fn test_process_block() {
-	let mut mock_client = MockEvmClientTrait::new();
+	let mut mock_client = MockEvmClientTrait::<MockWeb3TransportClient>::new();
 	let network = create_test_network("Ethereum", "ethereum_mainnet", BlockChainType::EVM);
 	let block = create_test_block(BlockChainType::EVM, 100);
 	let monitors = vec![create_test_monitor(
@@ -250,7 +250,7 @@ async fn test_process_block() {
 #[ignore]
 /// Skipping as this test is flaky and fails intermittently
 async fn test_process_block_with_shutdown() {
-	let mock_client = MockEvmClientTrait::new();
+	let mock_client = MockEvmClientTrait::<MockWeb3TransportClient>::new();
 	let network = create_test_network("Ethereum", "ethereum_mainnet", BlockChainType::EVM);
 	let block = create_test_block(BlockChainType::EVM, 100);
 	let monitors = vec![create_test_monitor(
