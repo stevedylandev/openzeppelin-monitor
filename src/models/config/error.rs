@@ -3,7 +3,7 @@
 //! This module defines the error types that can occur during configuration
 //! loading and validation.
 
-use crate::utils::{ErrorContext, TraceableError};
+use crate::utils::logging::error::{ErrorContext, TraceableError};
 use std::collections::HashMap;
 use thiserror::Error as ThisError;
 use uuid::Uuid;

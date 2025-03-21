@@ -3,7 +3,7 @@
 //! Defines the error cases that can occur during block filtering
 //! and provides helper methods for error creation and formatting.
 
-use crate::utils::{ErrorContext, TraceableError};
+use crate::utils::logging::error::{ErrorContext, TraceableError};
 use std::collections::HashMap;
 use thiserror::Error as ThisError;
 use uuid::Uuid;

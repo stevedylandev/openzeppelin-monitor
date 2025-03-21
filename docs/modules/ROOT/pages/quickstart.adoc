@@ -1,18 +1,18 @@
 = Quick Start Guide
-:description: This guide provides step-by-step instructions for setting up OpenZeppelin Monitor. It includes prerequisites, installation, and configuration examples.
+:description: This guide provides step-by-step instructions for setting up OpenZeppelin Monitor, including prerequisites, installation, and configuration examples.
 
 This guide provides step-by-step instructions for setting up OpenZeppelin Monitor. It includes prerequisites, installation, and configuration examples.
 
-== Prerequisites:
+== Prerequisites
 
 * Rust 2021 edition
 * Docker (optional, for containerized deployment)
 
-== Environment Configuration:
+== Environment Configuration
 
-=== Configuration Instructions:
+=== Logging Configuration
 
-Modify the configuration files with your preferred verbosity level:
+Configure the logging verbosity level:
 
 1. Error
 2. Warn
@@ -25,22 +25,20 @@ Modify the configuration files with your preferred verbosity level:
 RUST_LOG=info
 ----
 
-=== Local Configuration:
+=== Local Configuration
 
-Copy the example environment file:
+Copy the example environment file and update values according to your needs
 
 [source,bash]
 ----
 cp .env.example .env
 ----
 
-=== Docker Configuration:
+For details on the supported values see xref:index.adoc[User Documentation]
 
-Modify the `env_dev` and `env_prod` files.
+== Installation
 
-== Installation:
-
-=== Local Installation:
+=== Local Installation
 
 . Clone the repository:
 +
@@ -57,15 +55,82 @@ cd openzeppelin-monitor
 cargo build
 ----
 
-=== Docker Installation:
+=== Standalone CLI Usage
+
+. View available options:
++
+[source,bash]
+----
+./openzeppelin-monitor --help
+----
+
+. Enable logging to file with `--log-file`
+. Enable metrics server with `--metrics`
+
+=== Docker Installation
+
+==== Basic Setup
+
+. Start the services using the make target:
++
+[source,bash]
+----
+cargo make docker-compose-up
+----
+
+[NOTE]
+====
+By default, Docker Compose uses `Dockerfile.development`. To use production settings, set:
+`DOCKERFILE=Dockerfile.production` before running the command.
+====
+
+==== Metrics Configuration
+
+The metrics server, Prometheus, and Grafana can be enabled by setting `METRICS_ENABLED=true` in your `.env` file.
+
+You can start services directly with Docker Compose:
 
 [source,bash]
 ----
-# Build the Docker image
-docker build --tag openzeppelin-monitor -f Dockerfile.development .
+# without metrics profile ( METRICS_ENABLED=false by default )
+docker compose up -d
 
-# Create a Docker volume to persist monitor data between container restarts (optional)
-docker volume create openzeppelin-monitor-data
+# With metrics enabled
+docker compose --profile metrics up -d
+----
+
+To view prometheus metrics in a UI, you can use `http://localhost:9090` on your browser.
+
+To view grafana dashboard, you can use `http://localhost:3000` on your browser.
+
+By default, predefined metrics within a dashboard is populated in grafana.
+
+==== Management Commands
+
+. Verify container status:
++
+[source,bash]
+----
+docker ps -a
+----
+
+. Stop services:
++
+[source,bash]
+----
+cargo make docker-compose-down
+# or using docker compose directly:
+# without metrics profile
+docker compose down
+# or with metrics profile
+docker compose --profile metrics down
+----
+
+. View logs (stdout):
++
+[source,bash]
+----
+docker compose logs -f
 ----
 
 == Examples:
@@ -261,11 +326,8 @@ cargo run
 
 [source,bash]
 ----
-docker run \
-  --mount type=bind,src=./config,dst=/app/config,ro \
-  --volume openzeppelin-monitor-data:/app/data \
-  openzeppelin-monitor
-----
+cargo make docker-compose-up
+---
 
 
 The monitor will now:
@@ -415,12 +477,8 @@ cargo run
 
 [source,bash]
 ----
-docker run \
-  --mount type=bind,src=./config,dst=/app/config,ro \
-  --volume openzeppelin-monitor-data:/app/data \
-  openzeppelin-monitor
+cargo make docker-compose-up
 ----
-
 
 The monitor will now:
 

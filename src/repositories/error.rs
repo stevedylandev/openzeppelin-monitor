@@ -4,7 +4,7 @@
 //! including validation errors, loading errors, and internal errors. It provides
 //! a consistent error handling interface across all repository implementations.
 
-use crate::utils::{ErrorContext, TraceableError};
+use crate::utils::logging::error::{ErrorContext, TraceableError};
 use std::collections::HashMap;
 use thiserror::Error as ThisError;
 use uuid::Uuid;

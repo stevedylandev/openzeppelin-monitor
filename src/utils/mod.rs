@@ -10,13 +10,13 @@
 //! - script: Utilities for working with scripts
 
 mod cron_utils;
-mod error;
 mod expression;
-mod logging;
+pub mod logging;
+pub mod metrics;
 mod script;
 
 pub use cron_utils::*;
-pub use error::*;
 pub use expression::*;
 pub use logging::*;
+pub use metrics::*;
 pub use script::*;

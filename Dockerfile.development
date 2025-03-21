@@ -22,11 +22,10 @@ RUN apk add bash python-${version} py${version}-pip nodejs jq
 
 WORKDIR /app
 COPY --from=base --chown=nonroot:nonroot /usr/app/bin/openzeppelin-monitor /app/openzeppelin-monitor
-COPY --chown=nonroot:nonroot config /app/config
-COPY --chown=nonroot:nonroot data /app/data
-COPY --chown=nonroot:nonroot env_dev /app/.env
 
-EXPOSE 8080
+ENV METRICS_PORT=8081
+
+EXPOSE ${METRICS_PORT}/tcp
 
 # starting up
 ENTRYPOINT ["/app/openzeppelin-monitor"]

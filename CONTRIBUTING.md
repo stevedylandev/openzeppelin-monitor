@@ -354,8 +354,8 @@ Note: if your pull request isn't getting enough attention, you can contact us on
 - Format code with `rustfmt`:
 
   ```sh
-  rustup component add rustfmt --toolchain nightly
-  cargo +nightly fmt
+  rustup component add rustfmt
+  cargo fmt
   ```
 
 - Lint code with `clippy`:
@@ -383,7 +383,7 @@ Testing is the responsibility of all contributors as such all contributions must
 
 ## Documentation
 
-- TBD
+- See [User Documentation](https://openzeppelin-monitor.netlify.app/openzeppelin_monitor/0.1.0/).
 
 ## Issue and Pull Request Labeling Guidelines
 

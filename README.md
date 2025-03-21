@@ -85,6 +85,7 @@ graph TD
         Discord
         Telegram
         Webhook
+        Script
     end
 
     %% Block Processing Flow
@@ -109,6 +110,7 @@ graph TD
     NS --> Discord
     NS --> Telegram
     NS --> Webhook
+    NS --> Script
 
     style STL fill:#f0f0f0
 
@@ -120,21 +122,27 @@ graph TD
     class ETH,POL,BSC rpc
     class BS storage
     class BW,FS,TS,NS service
-    class Slack,Email,Discord,Telegram,Webhook notification
+    class Slack,Email,Discord,Telegram,Webhook,Script notification
 ```
 
 ### Project Structure
 
-- `src/`: Source code
-  - `models/`: Data structures and types
-  - `repositories/`: Configuration storage
-  - `services/`: Core business logic
-  - `utils/`: Helper functions
-- `config/`: Configuration files
-- `tests/`: Integration tests
-- `data/`: Runtime data storage
-- `docs/`: Documentation
-- `scripts/`: Utility scripts
+```
+project-root/
+├── src/                # Source code
+│   ├── bootstrap/      # Bootstrap functions for the application
+│   ├── models/         # Data structures and types
+│   ├── repositories/   # Configuration storage
+│   ├── services/       # Core business logic
+│   ├── utils/          # Helper functions
+│
+├── config/             # Configuration files
+├── tests/              # Integration and property-based tests
+├── data/               # Runtime data storage
+├── docs/               # Documentation
+├── scripts/            # Utility scripts
+├── cmd/                # Metrics and monitoring
+```
 
 ### Setup
 
@@ -149,10 +157,10 @@ To get started, run the following commands to install pre-commit hooks:
 
   > :warning: If you encounter issues with pip, consider using [pipx](https://pipx.pypa.io/stable/installation/) for a global installation.
 
-- Install the nightly toolchain:
+- Install the toolchain:
+
   ```bash
-  rustup toolchain install nightly
-  rustup component add rustfmt --toolchain nightly
+  rustup component add rustfmt
   ```
 
 ### Run Tests
@@ -173,7 +181,7 @@ _Interactive HTML Report_
 RUST_TEST_THREADS=1 cargo +stable llvm-cov --html --open
 ```
 
-_Terminal Report_
+_CLI Report_
 
 ```sh
 RUST_TEST_THREADS=1 cargo +stable llvm-cov

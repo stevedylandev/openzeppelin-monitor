@@ -3,7 +3,7 @@
 //! Provides a comprehensive error handling system for blockchain operations,
 //! including network connectivity, request processing, and blockchain-specific errors.
 
-use crate::utils::{ErrorContext, TraceableError};
+use crate::utils::logging::error::{ErrorContext, TraceableError};
 use std::collections::HashMap;
 use thiserror::Error as ThisError;
 use uuid::Uuid;

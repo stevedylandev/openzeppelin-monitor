@@ -17,7 +17,7 @@
 
 use futures::future::BoxFuture;
 use std::{collections::HashMap, error::Error, sync::Arc};
-use tokio::sync::watch;
+use tokio::sync::{watch, Mutex};
 
 use crate::{
 	models::{
@@ -39,11 +39,15 @@ use crate::{
 
 /// Type alias for handling ServiceResult
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
-type ServiceResult<T> = Result<(
+
+type ServiceResult<M, N, T> = Result<(
 	Arc<FilterService>,
 	Arc<TriggerExecutionService<T>>,
 	Vec<Monitor>,
 	HashMap<String, Network>,
+	Arc<Mutex<MonitorService<M, N, T>>>,
+	Arc<Mutex<NetworkService<N>>>,
+	Arc<Mutex<TriggerService<T>>>,
 )>;
 
 /// Initializes all required services for the blockchain monitor.
@@ -54,14 +58,16 @@ type ServiceResult<T> = Result<(
 /// - TriggerExecutionService: Manages trigger execution
 /// - `Vec<Monitor>`: List of active monitors
 /// - `HashMap<String, Network>`: Available networks indexed by slug
-///
+/// - `Arc<Mutex<M>>`: Data access for monitor configs
+/// - `Arc<Mutex<N>>`: Data access for network configs
+/// - `Arc<Mutex<T>>`: Data access for trigger configs
 /// # Errors
 /// Returns an error if any service initialization fails
 pub fn initialize_services<M, N, T>(
 	monitor_service: Option<MonitorService<M, N, T>>,
 	network_service: Option<NetworkService<N>>,
 	trigger_service: Option<TriggerService<T>>,
-) -> ServiceResult<T>
+) -> ServiceResult<M, N, T>
 where
 	M: MonitorRepositoryTrait<N, T>,
 	N: NetworkRepositoryTrait,
@@ -99,7 +105,7 @@ where
 
 	let filter_service = Arc::new(FilterService::new());
 	let trigger_execution_service = Arc::new(TriggerExecutionService::new(
-		trigger_service,
+		trigger_service.clone(),
 		notification_service,
 	));
 
@@ -112,6 +118,9 @@ where
 		trigger_execution_service,
 		active_monitors,
 		networks,
+		Arc::new(Mutex::new(monitor_service)),
+		Arc::new(Mutex::new(network_service)),
+		Arc::new(Mutex::new(trigger_service)),
 	))
 }
 

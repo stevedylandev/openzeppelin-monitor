@@ -3,7 +3,7 @@
 //! Provides error types for notification-related operations,
 //! including network issues and configuration problems.
 
-use crate::utils::{ErrorContext, TraceableError};
+use crate::utils::logging::error::{ErrorContext, TraceableError};
 use std::collections::HashMap;
 use thiserror::Error as ThisError;
 use uuid::Uuid;
