@@ -7,7 +7,7 @@ rust-version = "1.84"         #MSRV
 [profile.release]
 opt-level = 0
 overflow-checks = false
-panic = 'unwind'
+panic = 'abort'
 
 [profile.test]
 debug = true
@@ -69,6 +69,7 @@ proptest = "1.6.0"
 rand = "0.9.0"
 tempfile = "3.2"
 tracing-test = "0.2.5"
+
 [lib]
 path = "src/lib.rs"
 
