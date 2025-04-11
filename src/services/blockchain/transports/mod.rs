@@ -1,8 +1,11 @@
 //! Network transport implementations for blockchain clients.
 //!
 //! Provides concrete implementations for different blockchain network protocols:
+//!
+//! - Generic HTTP transport for all chains
 //! - Alloy transport for EVM chains
 //! - Horizon and Stellar RPC transport for Stellar
+//! - Midnight RPC transport for Midnight
 
 mod evm {
 	pub mod alloy;
@@ -11,10 +14,20 @@ mod stellar {
 	pub mod horizon;
 	pub mod soroban;
 }
+
+// mod midnight {
+// 	pub mod midnight;
+// }
+
+mod base {
+	pub mod http;
+}
 mod endpoint_manager;
 
+pub use base::http::HttpTransportClient;
 pub use endpoint_manager::EndpointManager;
 pub use evm::alloy::AlloyTransportClient;
+// pub use midnight::midnight::MidnightTransportClient;
 pub use stellar::{horizon::HorizonTransportClient, soroban::StellarTransportClient};
 
 use reqwest_retry::policies::ExponentialBackoff;

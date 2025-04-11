@@ -221,6 +221,16 @@ pub fn create_evm_test_network_with_urls(urls: Vec<&str>) -> Network {
 	}
 }
 
+pub fn create_http_valid_server_mock_network_response(server: &mut Server) -> Mock {
+	server
+		.mock("POST", "/")
+		.match_body(r#"{"id":1,"jsonrpc":"2.0","method":"net_version","params":[]}"#)
+		.with_header("content-type", "application/json")
+		.with_status(200)
+		.with_body(r#"{"jsonrpc":"2.0","id":0,"result":"1"}"#)
+		.create()
+}
+
 pub fn create_test_block(chain: BlockChainType, block_number: u64) -> BlockType {
 	match chain {
 		BlockChainType::EVM => BlockType::EVM(Box::new(EVMBlock::from(alloy::rpc::types::Block {

@@ -4,7 +4,7 @@
 //! different blockchain networks. Includes:
 //!
 //! - Generic blockchain client trait
-//! - EVM and Stellar specific clients
+//! - Chain specific clients
 //! - Network transport implementations
 //! - Error handling for blockchain operations
 //! - Client pool for managing multiple clients
@@ -21,5 +21,5 @@ pub use error::BlockChainError;
 pub use pool::{ClientPool, ClientPoolTrait};
 pub use transports::{
 	AlloyTransportClient, BlockchainTransport, EndpointManager, HorizonTransportClient,
-	RotatingTransport, StellarTransportClient,
+	HttpTransportClient, RotatingTransport, StellarTransportClient,
 };

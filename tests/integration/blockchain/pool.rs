@@ -42,7 +42,7 @@ async fn test_get_evm_client_creates_and_caches() {
 
 	// First request should create new client
 	let client1 = pool.get_evm_client(&network).await.unwrap();
-	assert_eq!(pool.storages.len(), 2); // We have both EVM and Stellar storage types
+	assert_eq!(pool.storages.len(), 2); // We have both various chain storage types
 	assert_eq!(
 		pool.get_client_count::<EvmClient<AlloyTransportClient>>(BlockChainType::EVM)
 			.await,

@@ -74,9 +74,7 @@ impl AlloyTransportClient {
 						retry_policy,
 					});
 				}
-				Err(_) => {
-					continue;
-				}
+				Err(_) => continue,
 			}
 		}
 
@@ -145,10 +143,7 @@ impl BlockchainTransport for AlloyTransportClient {
 #[async_trait::async_trait]
 impl RotatingTransport for AlloyTransportClient {
 	async fn try_connect(&self, url: &str) -> Result<(), anyhow::Error> {
-		let url = match Url::parse(url) {
-			Ok(url) => url,
-			Err(_) => return Err(anyhow::anyhow!("Invalid URL: {}", url.to_string())),
-		};
+		let url = Url::parse(url).map_err(|_| anyhow::anyhow!("Invalid URL: {}", url))?;
 
 		let url_clone = url.clone();
 		let client = ClientBuilder::default().http(url);
@@ -163,10 +158,7 @@ impl RotatingTransport for AlloyTransportClient {
 	}
 
 	async fn update_client(&self, url: &str) -> Result<(), anyhow::Error> {
-		let parsed_url = match Url::parse(url) {
-			Ok(url) => url,
-			Err(_) => return Err(anyhow::anyhow!("Invalid URL: {}", url)),
-		};
+		let parsed_url = Url::parse(url).map_err(|_| anyhow::anyhow!("Invalid URL: {}", url))?;
 		let new_client = ClientBuilder::default().http(parsed_url);
 
 		let mut client = self.client.write().await;
