@@ -1,20 +1,20 @@
 use mockito::Server;
 use openzeppelin_monitor::services::blockchain::{
-	AlloyTransportClient, BlockchainTransport, RotatingTransport,
+	BlockchainTransport, MidnightTransportClient, RotatingTransport,
 };
 use serde_json::{json, Value};
 
 use crate::integration::mocks::{
-	create_evm_test_network_with_urls, create_evm_valid_server_mock_network_response,
+	create_midnight_test_network_with_urls, create_midnight_valid_server_mock_network_response,
 };
 
 #[tokio::test]
 async fn test_client_creation() {
 	let mut server = Server::new_async().await;
-	let mock = create_evm_valid_server_mock_network_response(&mut server);
-	let network = create_evm_test_network_with_urls(vec![&server.url()]);
+	let mock = create_midnight_valid_server_mock_network_response(&mut server);
+	let network = create_midnight_test_network_with_urls(vec![&server.url()]);
 
-	match AlloyTransportClient::new(&network).await {
+	match MidnightTransportClient::new(&network).await {
 		Ok(transport) => {
 			let active_url = transport.get_current_url().await;
 			assert_eq!(active_url, server.url());
@@ -23,9 +23,9 @@ async fn test_client_creation() {
 		Err(e) => panic!("Transport creation failed: {:?}", e),
 	}
 
-	let network = create_evm_test_network_with_urls(vec!["invalid-url"]);
+	let network = create_midnight_test_network_with_urls(vec!["invalid-url"]);
 
-	match AlloyTransportClient::new(&network).await {
+	match MidnightTransportClient::new(&network).await {
 		Err(error) => {
 			assert!(error.to_string().contains("All RPC URLs failed to connect"))
 		}
@@ -42,16 +42,16 @@ async fn test_client_creation_with_fallback() {
 
 	let mock = server
 		.mock("POST", "/")
-		.match_body(r#"{"method":"net_version","id":0,"jsonrpc":"2.0"}"#)
+		.match_body(r#"{"id":1,"jsonrpc":"2.0","method":"system_chain","params":[]}"#)
 		.with_header("content-type", "application/json")
 		.with_status(500)
 		.create();
 
-	let mock2 = create_evm_valid_server_mock_network_response(&mut server2);
+	let mock2 = create_midnight_valid_server_mock_network_response(&mut server2);
 
-	let network = create_evm_test_network_with_urls(vec![&server.url(), &server2.url()]);
+	let network = create_midnight_test_network_with_urls(vec![&server.url(), &server2.url()]);
 
-	match AlloyTransportClient::new(&network).await {
+	match MidnightTransportClient::new(&network).await {
 		Ok(transport) => {
 			let active_url = transport.get_current_url().await;
 			assert_eq!(active_url, server2.url());
@@ -67,10 +67,10 @@ async fn test_client_update_client() {
 	let mut server = Server::new_async().await;
 	let server2 = Server::new_async().await;
 
-	let mock1 = create_evm_valid_server_mock_network_response(&mut server);
+	let mock1 = create_midnight_valid_server_mock_network_response(&mut server);
 
-	let network = create_evm_test_network_with_urls(vec![&server.url()]);
-	let client = AlloyTransportClient::new(&network).await.unwrap();
+	let network = create_midnight_test_network_with_urls(vec![&server.url()]);
+	let client = MidnightTransportClient::new(&network).await.unwrap();
 
 	// Test successful update
 	let result = client.update_client(&server2.url()).await;
@@ -91,11 +91,11 @@ async fn test_client_try_connect() {
 	let mut server = Server::new_async().await;
 	let mut server2 = Server::new_async().await;
 	let server3 = Server::new_async().await;
-	let mock = create_evm_valid_server_mock_network_response(&mut server);
-	let mock2 = create_evm_valid_server_mock_network_response(&mut server2);
+	let mock = create_midnight_valid_server_mock_network_response(&mut server);
+	let mock2 = create_midnight_valid_server_mock_network_response(&mut server2);
 
-	let network = create_evm_test_network_with_urls(vec![&server.url()]);
-	let client = AlloyTransportClient::new(&network).await.unwrap();
+	let network = create_midnight_test_network_with_urls(vec![&server.url()]);
+	let client = MidnightTransportClient::new(&network).await.unwrap();
 
 	let result = client.try_connect(&server2.url()).await;
 	assert!(result.is_ok(), "Try connect should succeed");
@@ -119,7 +119,7 @@ async fn test_send_raw_request() {
 	let mut server = Server::new_async().await;
 
 	// First, set up the network verification mock that's called during client creation
-	let network_mock = create_evm_valid_server_mock_network_response(&mut server);
+	let network_mock = create_midnight_valid_server_mock_network_response(&mut server);
 
 	// Then set up the test request mock with the correct field order
 	let test_mock = server
@@ -130,8 +130,8 @@ async fn test_send_raw_request() {
 		.with_body(r#"{"jsonrpc":"2.0","result":{"data":"success"},"id":1}"#)
 		.create();
 
-	let network = create_evm_test_network_with_urls(vec![&server.url()]);
-	let client = AlloyTransportClient::new(&network).await.unwrap();
+	let network = create_midnight_test_network_with_urls(vec![&server.url()]);
+	let client = MidnightTransportClient::new(&network).await.unwrap();
 
 	// Test with params
 	let params = json!({"key": "value"});

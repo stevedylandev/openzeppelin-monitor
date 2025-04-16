@@ -14,7 +14,7 @@ async fn test_client_creation() {
 	let mock = create_http_valid_server_mock_network_response(&mut server);
 	let network = create_evm_test_network_with_urls(vec![&server.url()]);
 
-	match HttpTransportClient::new(&network).await {
+	match HttpTransportClient::new(&network, None).await {
 		Ok(transport) => {
 			let active_url = transport.get_current_url().await;
 			assert_eq!(active_url, server.url());
@@ -25,13 +25,39 @@ async fn test_client_creation() {
 
 	let network = create_evm_test_network_with_urls(vec!["invalid-url"]);
 
-	match HttpTransportClient::new(&network).await {
+	match HttpTransportClient::new(&network, None).await {
 		Err(error) => {
 			assert!(error.to_string().contains("All RPC URLs failed to connect"))
 		}
 		_ => panic!("Transport creation should fail"),
 	}
 
+	mock.assert();
+}
+
+#[tokio::test]
+async fn test_client_creation_with_test_connection_payload() {
+	let mut server = Server::new_async().await;
+	let mock = server
+		.mock("POST", "/")
+		.match_body(r#"{"id":1,"jsonrpc":"2.0","method":"system_chain","params":[]}"#)
+		.with_header("content-type", "application/json")
+		.with_status(200)
+		.with_body(r#"{"jsonrpc":"2.0","id":0,"result":"1"}"#)
+		.create();
+
+	let network = create_evm_test_network_with_urls(vec![&server.url()]);
+	const TEST_CONNECTION_PAYLOAD: &str =
+		r#"{"id":1,"jsonrpc":"2.0","method":"system_chain","params":[]}"#;
+
+	match HttpTransportClient::new(&network, Some(TEST_CONNECTION_PAYLOAD.to_string())).await {
+		Ok(transport) => {
+			let active_url = transport.get_current_url().await;
+			assert_eq!(active_url, server.url());
+			mock.assert();
+		}
+		Err(e) => panic!("Transport creation failed: {:?}", e),
+	}
 	mock.assert();
 }
 
@@ -51,7 +77,7 @@ async fn test_client_creation_with_fallback() {
 
 	let network = create_evm_test_network_with_urls(vec![&server.url(), &server2.url()]);
 
-	match HttpTransportClient::new(&network).await {
+	match HttpTransportClient::new(&network, None).await {
 		Ok(transport) => {
 			let active_url = transport.get_current_url().await;
 			assert_eq!(active_url, server2.url());
@@ -70,7 +96,7 @@ async fn test_client_update_client() {
 	let mock1 = create_http_valid_server_mock_network_response(&mut server);
 
 	let network = create_evm_test_network_with_urls(vec![&server.url()]);
-	let client = HttpTransportClient::new(&network).await.unwrap();
+	let client = HttpTransportClient::new(&network, None).await.unwrap();
 
 	// Test successful update
 	let result = client.update_client(&server2.url()).await;
@@ -94,7 +120,7 @@ async fn test_client_try_connect() {
 	let mock2 = create_http_valid_server_mock_network_response(&mut server2);
 
 	let network = create_evm_test_network_with_urls(vec![&server.url()]);
-	let client = HttpTransportClient::new(&network).await.unwrap();
+	let client = HttpTransportClient::new(&network, None).await.unwrap();
 
 	let result = client.try_connect(&server2.url()).await;
 	assert!(result.is_ok(), "Try connect should succeed");
@@ -107,13 +133,38 @@ async fn test_client_try_connect() {
 	let result = client
 		.try_connect("http://non-existent-url-localhost:8545")
 		.await;
-	println!("result: {:?}", result);
 	assert!(result.is_err(), "Try connect with invalid URL should fail");
 	let e = result.unwrap_err();
 	assert!(e.to_string().contains("Failed to connect"));
 
 	mock.assert();
 	mock2.assert();
+}
+
+#[tokio::test]
+async fn test_client_try_connect_with_test_connection_payload() {
+	let mut server = Server::new_async().await;
+	let mock = server
+		.mock("POST", "/")
+		.match_body(r#"{"id":1,"jsonrpc":"2.0","method":"system_chain","params":[]}"#)
+		.with_header("content-type", "application/json")
+		.with_status(200)
+		.with_body(r#"{"jsonrpc":"2.0","id":0,"result":"1"}"#)
+		.expect(2)
+		.create();
+
+	let network = create_evm_test_network_with_urls(vec![&server.url()]);
+	const TEST_CONNECTION_PAYLOAD: &str =
+		r#"{"id":1,"jsonrpc":"2.0","method":"system_chain","params":[]}"#;
+
+	let client = HttpTransportClient::new(&network, Some(TEST_CONNECTION_PAYLOAD.to_string()))
+		.await
+		.unwrap();
+
+	let result = client.try_connect(&server.url()).await;
+	assert!(result.is_ok(), "Try connect should succeed");
+
+	mock.assert();
 }
 
 #[tokio::test]
@@ -133,7 +184,7 @@ async fn test_send_raw_request() {
 		.create();
 
 	let network = create_evm_test_network_with_urls(vec![&server.url()]);
-	let client = HttpTransportClient::new(&network).await.unwrap();
+	let client = HttpTransportClient::new(&network, None).await.unwrap();
 
 	// Test with params
 	let params = json!({"key": "value"});

@@ -16,18 +16,19 @@ mod integration {
 		}
 		mod transports {
 			mod evm {
-				mod alloy;
+				mod http;
 				mod transport;
 			}
 			mod stellar {
-				mod horizon;
-				mod soroban;
+				mod http;
 				mod transport;
 			}
-			mod base {
+			mod midnight {
 				mod http;
+				mod transport;
 			}
 			mod endpoint_manager;
+			mod http;
 		}
 	}
 	mod bootstrap {

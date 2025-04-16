@@ -40,6 +40,8 @@ pub struct HttpTransportClient {
 	endpoint_manager: EndpointManager,
 	/// The retry policy for failed requests
 	retry_policy: ExponentialBackoff,
+	/// The stringified JSON RPC payload to use for testing the connection
+	test_connection_payload: Option<String>,
 }
 
 impl HttpTransportClient {
@@ -51,10 +53,14 @@ impl HttpTransportClient {
 	///
 	/// # Arguments
 	/// * `network` - Network configuration containing RPC URLs, weights, and other details
+	/// * `test_connection_payload` - Optional JSON RPC payload to test the connection (default is net_version)
 	///
 	/// # Returns
 	/// * `Result<Self, anyhow::Error>` - New client instance or connection error
-	pub async fn new(network: &Network) -> Result<Self, anyhow::Error> {
+	pub async fn new(
+		network: &Network,
+		test_connection_payload: Option<String>,
+	) -> Result<Self, anyhow::Error> {
 		let mut rpc_urls: Vec<_> = network
 			.rpc_urls
 			.iter()
@@ -81,20 +87,24 @@ impl HttpTransportClient {
 				Err(_) => continue,
 			};
 
-			// Test connection with a basic request
-			let test_request = json!({
-				"jsonrpc": "2.0",
-				"id": 1,
-				"method": "net_version",
-				"params": []
-			});
+			let test_request = if let Some(test_payload) = &test_connection_payload {
+				serde_json::from_str(test_payload)
+					.context("Failed to parse test payload as JSON")?
+			} else {
+				json!({
+					"jsonrpc": "2.0",
+					"id": 1,
+					"method": "net_version",
+					"params": []
+				})
+			};
 
 			let request = client.post(url.clone()).json(&test_request);
 			// Attempt to connect to the endpoint
 			match request.send().await {
 				Ok(response) => {
 					// Check if the response indicates an error status (4xx or 5xx)
-					if response.error_for_status().is_err() {
+					if !response.status().is_success() {
 						// Skip this URL if we got an error status
 						continue;
 					}
@@ -111,6 +121,7 @@ impl HttpTransportClient {
 						client: Arc::new(RwLock::new(client)),
 						endpoint_manager: EndpointManager::new(rpc_url.url.as_ref(), fallback_urls),
 						retry_policy,
+						test_connection_payload,
 					});
 				}
 				Err(_) => {
@@ -206,18 +217,33 @@ impl RotatingTransport for HttpTransportClient {
 	async fn try_connect(&self, url: &str) -> Result<(), anyhow::Error> {
 		let url = Url::parse(url).map_err(|_| anyhow::anyhow!("Invalid URL: {}", url))?;
 
-		let test_request = json!({
-			"jsonrpc": "2.0",
-			"id": 1,
-			"method": "net_version",
-			"params": []
-		});
+		let test_request = if let Some(test_payload) = &self.test_connection_payload {
+			serde_json::from_str(test_payload).context("Failed to parse test payload as JSON")?
+		} else {
+			json!({
+				"jsonrpc": "2.0",
+				"id": 1,
+				"method": "net_version",
+				"params": []
+			})
+		};
 
 		let client = self.client.read().await;
 		let request = client.post(url.clone()).json(&test_request);
 
 		match request.send().await {
-			Ok(_) => Ok(()),
+			Ok(response) => {
+				let status = response.status();
+				if !status.is_success() {
+					Err(anyhow::anyhow!(
+						"Failed to connect to {}: {}",
+						url,
+						status.as_u16()
+					))
+				} else {
+					Ok(())
+				}
+			}
 			Err(e) => Err(anyhow::anyhow!("Failed to connect to {}: {}", url, e)),
 		}
 	}

@@ -90,9 +90,9 @@ async fn test_get_blocks() {
 async fn test_new_client() {
 	let mut server = Server::new_async().await;
 
-	let mock = create_stellar_valid_server_mock_network_response(&mut server, "soroban");
+	let mock = create_stellar_valid_server_mock_network_response(&mut server);
 	// Create a test network
-	let network = create_stellar_test_network_with_urls(vec![&server.url()], "rpc");
+	let network = create_stellar_test_network_with_urls(vec![&server.url()]);
 
 	// Test successful client creation
 	let result = StellarClient::new(&network).await;

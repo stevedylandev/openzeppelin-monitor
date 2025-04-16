@@ -3,10 +3,12 @@ use alloy::{
 	rpc::types::Index,
 };
 use mockall::predicate;
-use openzeppelin_monitor::services::blockchain::{BlockChainClient, EvmClient, EvmClientTrait};
+use openzeppelin_monitor::services::blockchain::{
+	BlockChainClient, MidnightClient, MidnightClientTrait,
+};
 use serde_json::{json, Value};
 
-use crate::integration::mocks::MockEVMTransportClient;
+use crate::integration::mocks::MockMidnightTransportClient;
 
 fn create_mock_block(number: u64) -> Value {
 	json!({
@@ -37,7 +39,7 @@ fn create_mock_block(number: u64) -> Value {
 
 #[tokio::test]
 async fn test_get_logs_for_blocks_implementation() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Expected request parameters
 	let expected_params = json!([{
@@ -61,7 +63,7 @@ async fn test_get_logs_for_blocks_implementation() {
 		}]
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.with(
 			predicate::eq("eth_getLogs"),
@@ -69,7 +71,7 @@ async fn test_get_logs_for_blocks_implementation() {
 		)
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client.get_logs_for_blocks(1, 10).await;
 
 	assert!(result.is_ok());
@@ -86,7 +88,7 @@ async fn test_get_logs_for_blocks_implementation() {
 
 #[tokio::test]
 async fn test_get_logs_for_blocks_missing_result() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response without result field
 	let mock_response = json!({
@@ -94,11 +96,11 @@ async fn test_get_logs_for_blocks_missing_result() {
 		"jsonrpc": "2.0"
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client.get_logs_for_blocks(1, 10).await;
 
 	assert!(result.is_err());
@@ -108,7 +110,7 @@ async fn test_get_logs_for_blocks_missing_result() {
 
 #[tokio::test]
 async fn test_get_logs_for_blocks_invalid_format() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response with invalid log format
 	let mock_response = json!({
@@ -117,11 +119,11 @@ async fn test_get_logs_for_blocks_invalid_format() {
 		}]
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client.get_logs_for_blocks(1, 10).await;
 
 	assert!(result.is_err());
@@ -131,13 +133,13 @@ async fn test_get_logs_for_blocks_invalid_format() {
 
 #[tokio::test]
 async fn test_get_logs_for_blocks_alloy_error() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.returning(|_: &str, _: Option<Vec<Value>>| Err(anyhow::anyhow!("Alloy error")));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client.get_logs_for_blocks(1, 10).await;
 
 	assert!(result.is_err());
@@ -145,7 +147,7 @@ async fn test_get_logs_for_blocks_alloy_error() {
 
 #[tokio::test]
 async fn test_get_transaction_receipt_success() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Expected request parameters for a transaction hash
 	let expected_params =
@@ -171,7 +173,7 @@ async fn test_get_transaction_receipt_success() {
 		}
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.with(
 			predicate::eq("eth_getTransactionReceipt"),
@@ -179,7 +181,7 @@ async fn test_get_transaction_receipt_success() {
 		)
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client
 		.get_transaction_receipt(
 			"0000000000000000000000000000000000000000000000000000000000000001".to_string(),
@@ -194,18 +196,18 @@ async fn test_get_transaction_receipt_success() {
 
 #[tokio::test]
 async fn test_get_transaction_receipt_not_found() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response for a non-existent transaction
 	let mock_response = json!({
 		"result": null
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client
 		.get_transaction_receipt(
 			"0000000000000000000000000000000000000000000000000000000000000001".to_string(),
@@ -219,10 +221,10 @@ async fn test_get_transaction_receipt_not_found() {
 
 #[tokio::test]
 async fn test_get_transaction_receipt_invalid_hash() {
-	let mock_evm = MockEVMTransportClient::new();
+	let mock_midnight = MockMidnightTransportClient::new();
 	// We don't need to mock any response since the validation will fail before making the
 	// request
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 
 	// Test with an invalid hash format
 	let result = client
@@ -237,7 +239,7 @@ async fn test_get_transaction_receipt_invalid_hash() {
 
 #[tokio::test]
 async fn test_get_transaction_receipt_missing_result() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response without result field
 	let mock_response = json!({
@@ -245,11 +247,11 @@ async fn test_get_transaction_receipt_missing_result() {
 		"jsonrpc": "2.0"
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client
 		.get_transaction_receipt(
 			"0000000000000000000000000000000000000000000000000000000000000001".to_string(),
@@ -263,7 +265,7 @@ async fn test_get_transaction_receipt_missing_result() {
 
 #[tokio::test]
 async fn test_get_transaction_receipt_parse_failure() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response with malformed receipt data
 	let mock_response = json!({
@@ -274,11 +276,11 @@ async fn test_get_transaction_receipt_parse_failure() {
 		}
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client
 		.get_transaction_receipt(
 			"0000000000000000000000000000000000000000000000000000000000000001".to_string(),
@@ -295,19 +297,19 @@ async fn test_get_transaction_receipt_parse_failure() {
 
 #[tokio::test]
 async fn test_get_latest_block_number_success() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response with a block number
 	let mock_response = json!({
 		"result": "0x1234"
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.with(predicate::eq("eth_blockNumber"), predicate::always())
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client.get_latest_block_number().await;
 
 	assert!(result.is_ok());
@@ -316,18 +318,18 @@ async fn test_get_latest_block_number_success() {
 
 #[tokio::test]
 async fn test_get_latest_block_number_invalid_response() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response with invalid format
 	let mock_response = json!({
 		"result": "invalid_hex"
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client.get_latest_block_number().await;
 
 	assert!(result.is_err());
@@ -337,7 +339,7 @@ async fn test_get_latest_block_number_invalid_response() {
 
 #[tokio::test]
 async fn test_get_latest_block_number_missing_result() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response without result field
 	let mock_response = json!({
@@ -345,12 +347,12 @@ async fn test_get_latest_block_number_missing_result() {
 		"jsonrpc": "2.0"
 	});
 
-	mock_evm
+	mock_midnight
 		.expect_send_raw_request()
 		.with(predicate::eq("eth_blockNumber"), predicate::always())
 		.returning(move |_: &str, _: Option<Vec<Value>>| Ok(mock_response.clone()));
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 	let result = client.get_latest_block_number().await;
 
 	assert!(result.is_err());
@@ -360,11 +362,11 @@ async fn test_get_latest_block_number_missing_result() {
 
 #[tokio::test]
 async fn test_get_single_block() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response without result field
-	mock_evm.expect_clone().times(1).returning(|| {
-		let mut new_mock = MockEVMTransportClient::new();
+	mock_midnight.expect_clone().times(1).returning(|| {
+		let mut new_mock = MockMidnightTransportClient::new();
 		// Mock successful block response
 		let mock_response = json!({
 			"jsonrpc": "2.0",
@@ -384,11 +386,11 @@ async fn test_get_single_block() {
 
 		new_mock
 			.expect_clone()
-			.returning(MockEVMTransportClient::new);
+			.returning(MockMidnightTransportClient::new);
 		new_mock
 	});
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 
 	let result = client.get_blocks(1, None).await;
 	assert!(result.is_ok());
@@ -398,11 +400,11 @@ async fn test_get_single_block() {
 
 #[tokio::test]
 async fn test_get_multiple_blocks() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response without result field
-	mock_evm.expect_clone().times(3).returning(|| {
-		let mut new_mock = MockEVMTransportClient::new();
+	mock_midnight.expect_clone().times(3).returning(|| {
+		let mut new_mock = MockMidnightTransportClient::new();
 		new_mock.expect_send_raw_request().times(1).returning(
 			move |_: &str, params: Option<Vec<Value>>| {
 				let block_num = u64::from_str_radix(
@@ -423,11 +425,11 @@ async fn test_get_multiple_blocks() {
 
 		new_mock
 			.expect_clone()
-			.returning(MockEVMTransportClient::new);
+			.returning(MockMidnightTransportClient::new);
 		new_mock
 	});
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 
 	let result = client.get_blocks(1, Some(3)).await;
 	assert!(result.is_ok());
@@ -437,11 +439,11 @@ async fn test_get_multiple_blocks() {
 
 #[tokio::test]
 async fn test_get_blocks_missing_result() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
 	// Mock response without result field
-	mock_evm.expect_clone().returning(|| {
-		let mut new_mock = MockEVMTransportClient::new();
+	mock_midnight.expect_clone().returning(|| {
+		let mut new_mock = MockMidnightTransportClient::new();
 		let mock_response = json!({
 			"jsonrpc": "2.0",
 			"id": 1
@@ -453,11 +455,11 @@ async fn test_get_blocks_missing_result() {
 			.returning(move |_, _| Ok(mock_response.clone()));
 		new_mock
 			.expect_clone()
-			.returning(MockEVMTransportClient::new);
+			.returning(MockMidnightTransportClient::new);
 		new_mock
 	});
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 
 	let result = client.get_blocks(1, None).await;
 	assert!(result.is_err());
@@ -467,10 +469,10 @@ async fn test_get_blocks_missing_result() {
 
 #[tokio::test]
 async fn test_get_blocks_null_result() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
-	mock_evm.expect_clone().returning(|| {
-		let mut new_mock = MockEVMTransportClient::new();
+	mock_midnight.expect_clone().returning(|| {
+		let mut new_mock = MockMidnightTransportClient::new();
 		// Mock response with null result
 		let mock_response = json!({
 			"jsonrpc": "2.0",
@@ -482,11 +484,11 @@ async fn test_get_blocks_null_result() {
 			.returning(move |_, _| Ok(mock_response.clone()));
 		new_mock
 			.expect_clone()
-			.returning(MockEVMTransportClient::new);
+			.returning(MockMidnightTransportClient::new);
 		new_mock
 	});
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 
 	let result = client.get_blocks(1, None).await;
 	assert!(result.is_err());
@@ -496,10 +498,10 @@ async fn test_get_blocks_null_result() {
 
 #[tokio::test]
 async fn test_get_blocks_parse_failure() {
-	let mut mock_evm = MockEVMTransportClient::new();
+	let mut mock_midnight = MockMidnightTransportClient::new();
 
-	mock_evm.expect_clone().returning(|| {
-		let mut new_mock = MockEVMTransportClient::new();
+	mock_midnight.expect_clone().returning(|| {
+		let mut new_mock = MockMidnightTransportClient::new();
 		// Mock response with malformed block data
 		let mock_response = json!({
 			"jsonrpc": "2.0",
@@ -515,11 +517,11 @@ async fn test_get_blocks_parse_failure() {
 			.returning(move |_, _| Ok(mock_response.clone()));
 		new_mock
 			.expect_clone()
-			.returning(MockEVMTransportClient::new);
+			.returning(MockMidnightTransportClient::new);
 		new_mock
 	});
 
-	let client = EvmClient::<MockEVMTransportClient>::new_with_transport(mock_evm);
+	let client = MidnightClient::<MockMidnightTransportClient>::new_with_transport(mock_midnight);
 
 	let result = client.get_blocks(1, None).await;
 	assert!(result.is_err());

@@ -4,22 +4,22 @@ use serde_json::Value;
 
 use openzeppelin_monitor::services::blockchain::{BlockchainTransport, RotatingTransport};
 
-// Mock implementation of a Alloy transport client.
-// Used for testing Ethereum/Alloy-compatible blockchain interactions.
+// Mock implementation of a EVM transport client.
+// Used for testing Ethereum compatible blockchain interactions.
 // Provides functionality to simulate raw JSON-RPC request handling.
 mock! {
-	pub AlloyTransportClient {
+	pub EVMTransportClient {
 		pub async fn send_raw_request(&self, method: &str, params: Option<Vec<Value>>) -> Result<Value, anyhow::Error>;
 		pub async fn get_current_url(&self) -> String;
 	}
 
-	impl Clone for AlloyTransportClient {
+	impl Clone for EVMTransportClient {
 		fn clone(&self) -> Self;
 	}
 }
 
 #[async_trait::async_trait]
-impl BlockchainTransport for MockAlloyTransportClient {
+impl BlockchainTransport for MockEVMTransportClient {
 	async fn get_current_url(&self) -> String {
 		self.get_current_url().await
 	}
@@ -47,7 +47,7 @@ impl BlockchainTransport for MockAlloyTransportClient {
 }
 
 #[async_trait::async_trait]
-impl RotatingTransport for MockAlloyTransportClient {
+impl RotatingTransport for MockEVMTransportClient {
 	async fn try_connect(&self, _url: &str) -> Result<(), anyhow::Error> {
 		Ok(())
 	}
@@ -109,22 +109,22 @@ impl RotatingTransport for MockStellarTransportClient {
 	}
 }
 
-// Mock implementation of a Horizon transport client.
-// Used for testing Stellar blockchain interactions.
+// Mock implementation of a Midnight transport client.
+// Used for testing Midnight compatible blockchain interactions.
 // Provides functionality to simulate raw JSON-RPC request handling.
 mock! {
-	pub HorizonTransportClient {
-		pub async fn send_raw_request(&self, method: &str, params: Option<Value>) -> Result<Value, anyhow::Error>;
+	pub MidnightTransportClient {
+		pub async fn send_raw_request(&self, method: &str, params: Option<Vec<Value>>) -> Result<Value, anyhow::Error>;
 		pub async fn get_current_url(&self) -> String;
 	}
 
-	impl Clone for HorizonTransportClient {
+	impl Clone for MidnightTransportClient {
 		fn clone(&self) -> Self;
 	}
 }
 
 #[async_trait::async_trait]
-impl BlockchainTransport for MockHorizonTransportClient {
+impl BlockchainTransport for MockMidnightTransportClient {
 	async fn get_current_url(&self) -> String {
 		self.get_current_url().await
 	}
@@ -137,7 +137,8 @@ impl BlockchainTransport for MockHorizonTransportClient {
 	where
 		P: Into<Value> + Send + Clone,
 	{
-		self.send_raw_request(method, params.map(|p| p.into()))
+		let params_value = params.map(|p| p.into());
+		self.send_raw_request(method, params_value.and_then(|v| v.as_array().cloned()))
 			.await
 	}
 
@@ -151,7 +152,7 @@ impl BlockchainTransport for MockHorizonTransportClient {
 }
 
 #[async_trait::async_trait]
-impl RotatingTransport for MockHorizonTransportClient {
+impl RotatingTransport for MockMidnightTransportClient {
 	async fn try_connect(&self, _url: &str) -> Result<(), anyhow::Error> {
 		Ok(())
 	}

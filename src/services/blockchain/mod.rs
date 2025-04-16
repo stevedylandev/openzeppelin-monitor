@@ -16,10 +16,13 @@ mod pool;
 mod transports;
 
 pub use client::{BlockChainClient, BlockFilterFactory};
-pub use clients::{EvmClient, EvmClientTrait, StellarClient, StellarClientTrait};
+pub use clients::{
+	EvmClient, EvmClientTrait, MidnightClient, MidnightClientTrait, StellarClient,
+	StellarClientTrait,
+};
 pub use error::BlockChainError;
 pub use pool::{ClientPool, ClientPoolTrait};
 pub use transports::{
-	AlloyTransportClient, BlockchainTransport, EndpointManager, HorizonTransportClient,
-	HttpTransportClient, RotatingTransport, StellarTransportClient,
+	BlockchainTransport, EVMTransportClient, EndpointManager, HttpTransportClient,
+	MidnightTransportClient, RotatingTransport, StellarTransportClient,
 };
