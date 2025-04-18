@@ -62,4 +62,7 @@ mod integration {
 		mod telegram;
 		mod webhook;
 	}
+	mod monitor {
+		mod execution;
+	}
 }

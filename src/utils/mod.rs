@@ -15,6 +15,7 @@ mod expression;
 pub mod constants;
 pub mod logging;
 pub mod metrics;
+pub mod monitor;
 
 pub use constants::*;
 pub use cron_utils::*;

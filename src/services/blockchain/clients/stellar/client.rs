@@ -114,15 +114,27 @@ impl<T: Send + Sync + Clone + BlockchainTransport> StellarClientTrait for Stella
 		const PAGE_LIMIT: u32 = 200;
 		let mut transactions = Vec::new();
 		let target_sequence = end_sequence.unwrap_or(start_sequence);
-		let mut cursor = None;
+		let mut cursor: Option<String> = None;
+		let mut current_iteration = 0;
 
-		while cursor.unwrap_or(start_sequence) <= target_sequence {
-			let params = json!({
-				"startLedger": cursor.unwrap_or(start_sequence),
-				"pagination": {
-					"limit": PAGE_LIMIT
-				}
-			});
+		while cursor.is_some() || current_iteration <= 0 {
+			let params = if current_iteration == 0 {
+				// First iteration, we need to fetch the transactions from the start sequence without a cursor
+				json!({
+					"startLedger": start_sequence,
+					"pagination": {
+						"limit": PAGE_LIMIT
+					}
+				})
+			} else {
+				// Subsequent iterations, we need to fetch the transactions from the cursor
+				json!({
+					"pagination": {
+						"cursor": cursor,
+						"limit": PAGE_LIMIT
+					}
+				})
+			};
 
 			let response = self
 				.http_client
@@ -131,8 +143,7 @@ impl<T: Send + Sync + Clone + BlockchainTransport> StellarClientTrait for Stella
 				.with_context(|| {
 					format!(
 						"Failed to fetch transactions for ledger range {}-{}",
-						cursor.unwrap_or(start_sequence),
-						target_sequence
+						start_sequence, target_sequence
 					)
 				})?;
 
@@ -152,10 +163,9 @@ impl<T: Send + Sync + Clone + BlockchainTransport> StellarClientTrait for Stella
 				transactions.push(StellarTransaction::from(transaction));
 			}
 
-			cursor = response["result"]["cursor"]
-				.as_str()
-				.and_then(|s| s.parse::<u32>().ok());
-
+			// Increment the number of iterations to ensure we break the loop in case there is no cursor
+			current_iteration += 1;
+			cursor = response["result"]["cursor"].as_str().map(|s| s.to_string());
 			if cursor.is_none() {
 				break;
 			}
@@ -189,18 +199,33 @@ impl<T: Send + Sync + Clone + BlockchainTransport> StellarClientTrait for Stella
 		const PAGE_LIMIT: u32 = 200;
 		let mut events = Vec::new();
 		let target_sequence = end_sequence.unwrap_or(start_sequence);
-		let mut cursor = None;
+		let mut cursor: Option<String> = None;
+		let mut current_iteration = 0;
 
-		while cursor.unwrap_or(start_sequence) <= target_sequence {
-			let params = json!({
-				"startLedger": cursor.unwrap_or(start_sequence),
-				"filters": [{
-					"type": "contract",
-				}],
-				"pagination": {
-					"limit": PAGE_LIMIT
-				}
-			});
+		while cursor.is_some() || current_iteration <= 0 {
+			let params = if current_iteration == 0 {
+				// First iteration, we need to fetch the events from the start sequence without a cursor
+				json!({
+					"startLedger": start_sequence,
+					"filters": [{
+						"type": "contract",
+					}],
+					"pagination": {
+						"limit": PAGE_LIMIT
+					}
+				})
+			} else {
+				// Subsequent iterations, we need to fetch the events from the cursor
+				json!({
+					"filters": [{
+						"type": "contract",
+					}],
+					"pagination": {
+						"cursor": cursor,
+						"limit": PAGE_LIMIT
+					}
+				})
+			};
 
 			let response = self
 				.http_client
@@ -209,8 +234,7 @@ impl<T: Send + Sync + Clone + BlockchainTransport> StellarClientTrait for Stella
 				.with_context(|| {
 					format!(
 						"Failed to fetch events for ledger range {}-{}",
-						cursor.unwrap_or(start_sequence),
-						target_sequence
+						start_sequence, target_sequence
 					)
 				})?;
 
@@ -229,10 +253,9 @@ impl<T: Send + Sync + Clone + BlockchainTransport> StellarClientTrait for Stella
 				}
 				events.push(event);
 			}
-
-			cursor = response["result"]["cursor"]
-				.as_str()
-				.and_then(|s| s.parse::<u32>().ok());
+			// Increment the number of iterations to ensure we break the loop in case there is no cursor
+			current_iteration += 1;
+			cursor = response["result"]["cursor"].as_str().map(|s| s.to_string());
 
 			if cursor.is_none() {
 				break;
@@ -300,15 +323,27 @@ impl<T: Send + Sync + Clone + BlockchainTransport> BlockChainClient for StellarC
 
 		let mut blocks = Vec::new();
 		let target_block = end_block.unwrap_or(start_block);
-		let mut cursor = None;
+		let mut cursor: Option<String> = None;
+		let mut current_iteration = 0;
 
-		while cursor.unwrap_or(start_block) <= target_block {
-			let params = json!({
-				"startLedger": cursor.unwrap_or(start_block),
-				"pagination": {
-					"limit": PAGE_LIMIT
-				}
-			});
+		while cursor.is_some() || current_iteration <= 0 {
+			let params = if current_iteration == 0 {
+				// First iteration, we need to fetch the ledgers from the start block without a cursor
+				json!({
+					"startLedger": start_block,
+					"pagination": {
+						"limit": PAGE_LIMIT
+					}
+				})
+			} else {
+				// Subsequent iterations, we need to fetch the ledgers from the cursor
+				json!({
+					"pagination": {
+						"cursor": cursor,
+						"limit": PAGE_LIMIT
+					}
+				})
+			};
 
 			let response = self
 				.http_client
@@ -317,8 +352,7 @@ impl<T: Send + Sync + Clone + BlockchainTransport> BlockChainClient for StellarC
 				.with_context(|| {
 					format!(
 						"Failed to fetch ledgers for range {}-{}",
-						cursor.unwrap_or(start_block),
-						target_block
+						start_block, target_block
 					)
 				})?;
 
@@ -338,9 +372,9 @@ impl<T: Send + Sync + Clone + BlockchainTransport> BlockChainClient for StellarC
 				blocks.push(BlockType::Stellar(Box::new(ledger)));
 			}
 
-			cursor = response["result"]["cursor"]
-				.as_str()
-				.and_then(|s| s.parse::<u64>().ok());
+			// Increment the number of iterations to ensure we break the loop in case there is no cursor
+			current_iteration += 1;
+			cursor = response["result"]["cursor"].as_str().map(|s| s.to_string());
 
 			if cursor.is_none() {
 				break;
