@@ -25,4 +25,5 @@ pub use pool::{ClientPool, ClientPoolTrait};
 pub use transports::{
 	BlockchainTransport, EVMTransportClient, EndpointManager, HttpTransportClient,
 	MidnightTransportClient, RotatingTransport, StellarTransportClient,
+	TransientErrorRetryStrategy,
 };

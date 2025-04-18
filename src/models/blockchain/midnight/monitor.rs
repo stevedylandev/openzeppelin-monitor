@@ -11,6 +11,9 @@ pub struct MonitorMatch {
 	/// Transaction that triggered the match
 	pub transaction: MidnightTransaction,
 
+	/// Network slug that the transaction was sent from
+	pub network_slug: String,
+
 	/// Conditions that were matched
 	pub matched_on: MatchConditions,
 
