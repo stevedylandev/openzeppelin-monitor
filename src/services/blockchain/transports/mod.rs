@@ -21,9 +21,9 @@ pub use endpoint_manager::EndpointManager;
 pub use evm::http::EVMTransportClient;
 pub use http::HttpTransportClient;
 pub use midnight::http::MidnightTransportClient;
-use reqwest_middleware::ClientWithMiddleware;
 pub use stellar::http::StellarTransportClient;
 
+use reqwest_middleware::ClientWithMiddleware;
 use reqwest_retry::{
 	default_on_request_failure, default_on_request_success, policies::ExponentialBackoff,
 	Retryable, RetryableStrategy,

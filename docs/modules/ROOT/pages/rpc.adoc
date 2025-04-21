@@ -153,8 +153,8 @@ This architecture ensures:
 3. Both clients maintain efficiency by sharing the same connection pool
 
 
-*Transport Level*: Each transport client may define its own retry policy:
-+
+Each transport client may define its own retry policy:
+
 [source,rust]
 ----
 
