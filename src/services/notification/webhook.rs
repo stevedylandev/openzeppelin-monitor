@@ -28,8 +28,6 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct WebhookNotifier {
 	/// Base notifier with common functionality
 	base: BaseWebhookNotifier,
-	/// Webhook URL for message delivery
-	url: String,
 	/// HTTP method to use for the webhook request
 	method: Option<String>,
 	/// Secret to use for the webhook request
@@ -65,8 +63,7 @@ impl WebhookNotifier {
 		headers: Option<HashMap<String, String>>,
 	) -> Result<Self, Box<NotificationError>> {
 		Ok(Self {
-			base: BaseWebhookNotifier::new(title, body_template),
-			url,
+			base: BaseWebhookNotifier::new(url, title, body_template),
 			method: Some(method.unwrap_or("POST".to_string())),
 			secret: secret.map(|s| s.to_string()),
 			headers,
@@ -101,8 +98,11 @@ impl WebhookNotifier {
 				secret,
 				headers,
 			} => Some(Self {
-				url: url.clone(),
-				base: BaseWebhookNotifier::new(message.title.clone(), message.body.clone()),
+				base: BaseWebhookNotifier::new(
+					url.clone(),
+					message.title.clone(),
+					message.body.clone(),
+				),
 				method: method.clone(),
 				secret: secret.clone(),
 				headers: headers.clone(),
@@ -203,7 +203,7 @@ impl Notifier for WebhookNotifier {
 		let response = match self
 			.base
 			.client
-			.request(method, self.url.as_str())
+			.request(method, self.base.url.as_str())
 			.headers(headers)
 			.json(&payload)
 			.send()
@@ -351,7 +351,7 @@ mod tests {
 		assert!(notifier.is_some());
 
 		let notifier = notifier.unwrap();
-		assert_eq!(notifier.url, "https://webhook.example.com");
+		assert_eq!(notifier.base.url, "https://webhook.example.com");
 		assert_eq!(notifier.base.title, "Test Alert");
 		assert_eq!(notifier.base.body_template, "Test message ${value}");
 	}

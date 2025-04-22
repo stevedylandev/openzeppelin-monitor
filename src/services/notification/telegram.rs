@@ -23,8 +23,6 @@ pub struct TelegramNotifier {
 	chat_id: String,
 	/// Disable web preview
 	disable_web_preview: bool,
-	/// Base URL for the Telegram API
-	base_url: String,
 }
 
 impl TelegramNotifier {
@@ -45,11 +43,16 @@ impl TelegramNotifier {
 		body_template: String,
 	) -> Result<Self, Box<NotificationError>> {
 		Ok(Self {
-			base_url: base_url.unwrap_or("https://api.telegram.org".to_string()),
 			token,
 			chat_id,
 			disable_web_preview: disable_web_preview.unwrap_or(false),
-			base: BaseWebhookNotifier::new(title, body_template),
+			base: BaseWebhookNotifier::new(
+				base_url
+					.clone()
+					.unwrap_or("https://api.telegram.org".to_string()),
+				title,
+				body_template,
+			),
 		})
 	}
 
@@ -84,11 +87,14 @@ impl TelegramNotifier {
 				message,
 				disable_web_preview,
 			} => Some(Self {
-				base_url: "https://api.telegram.org".to_string(),
 				token: token.clone(),
 				chat_id: chat_id.clone(),
 				disable_web_preview: disable_web_preview.unwrap_or(false),
-				base: BaseWebhookNotifier::new(message.title.clone(), message.body.clone()),
+				base: BaseWebhookNotifier::new(
+					"https://api.telegram.org".to_string(),
+					message.title.clone(),
+					message.body.clone(),
+				),
 			}),
 			_ => None,
 		}
@@ -98,7 +104,7 @@ impl TelegramNotifier {
 		format!(
 			"{}/bot{}/sendMessage?text={}&chat_id={}&parse_mode=markdown&\
 			 disable_web_page_preview={}",
-			self.base_url,
+			self.base.url,
 			self.token,
 			urlencoding::encode(message),
 			self.chat_id,

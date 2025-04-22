@@ -18,8 +18,6 @@ use super::BaseWebhookNotifier;
 pub struct SlackNotifier {
 	/// Base notifier with common functionality
 	base: BaseWebhookNotifier,
-	/// Slack webhook URL for message delivery
-	url: String,
 }
 
 /// Represents a formatted Slack message
@@ -42,8 +40,7 @@ impl SlackNotifier {
 		body_template: String,
 	) -> Result<Self, Box<NotificationError>> {
 		Ok(Self {
-			url,
-			base: BaseWebhookNotifier::new(title, body_template),
+			base: BaseWebhookNotifier::new(url, title, body_template),
 		})
 	}
 
@@ -71,8 +68,11 @@ impl SlackNotifier {
 	pub fn from_config(config: &TriggerTypeConfig) -> Option<Self> {
 		match config {
 			TriggerTypeConfig::Slack { slack_url, message } => Some(Self {
-				url: slack_url.clone(),
-				base: BaseWebhookNotifier::new(message.title.clone(), message.body.clone()),
+				base: BaseWebhookNotifier::new(
+					slack_url.clone(),
+					message.title.clone(),
+					message.body.clone(),
+				),
 			}),
 			_ => None,
 		}
@@ -96,7 +96,7 @@ impl Notifier for SlackNotifier {
 		let response = self
 			.base
 			.client
-			.post(&self.url)
+			.post(&self.base.url)
 			.json(&payload)
 			.send()
 			.await
@@ -187,7 +187,7 @@ mod tests {
 		assert!(notifier.is_some());
 
 		let notifier = notifier.unwrap();
-		assert_eq!(notifier.url, "https://slack.example.com");
+		assert_eq!(notifier.base.url, "https://slack.example.com");
 		assert_eq!(notifier.base.title, "Test Alert");
 		assert_eq!(notifier.base.body_template, "Test message ${value}");
 	}

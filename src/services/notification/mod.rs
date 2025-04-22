@@ -29,8 +29,10 @@ pub use webhook::WebhookNotifier;
 
 /// Base implementation for webhook-style notifiers
 pub struct BaseWebhookNotifier {
-	/// HTTP client for webhook requests
+	/// HTTP client for requests
 	pub client: Client,
+	/// URL for the notifier
+	pub url: String,
 	/// Title to display in the message
 	pub title: String,
 	/// Message template with variable placeholders
@@ -39,9 +41,10 @@ pub struct BaseWebhookNotifier {
 
 impl BaseWebhookNotifier {
 	/// Creates a new base webhook notifier instance
-	pub fn new(title: String, body_template: String) -> Self {
+	pub fn new(url: String, title: String, body_template: String) -> Self {
 		Self {
 			client: Client::new(),
+			url,
 			title,
 			body_template,
 		}

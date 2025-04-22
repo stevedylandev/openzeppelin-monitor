@@ -18,8 +18,6 @@ use super::BaseWebhookNotifier;
 pub struct DiscordNotifier {
 	/// Base notifier with common functionality
 	base: BaseWebhookNotifier,
-	/// Discord webhook URL for message delivery
-	url: String, // TODO: move this url to the base notifier!
 }
 
 /// Represents a field in a Discord embed message
@@ -86,8 +84,7 @@ impl DiscordNotifier {
 		body_template: String,
 	) -> Result<Self, Box<NotificationError>> {
 		Ok(Self {
-			url,
-			base: BaseWebhookNotifier::new(title, body_template),
+			base: BaseWebhookNotifier::new(url, title, body_template),
 		})
 	}
 
@@ -118,8 +115,11 @@ impl DiscordNotifier {
 				discord_url,
 				message,
 			} => Some(Self {
-				url: discord_url.clone(),
-				base: BaseWebhookNotifier::new(message.title.clone(), message.body.clone()),
+				base: BaseWebhookNotifier::new(
+					discord_url.clone(),
+					message.title.clone(),
+					message.body.clone(),
+				),
 			}),
 			_ => None,
 		}
@@ -146,7 +146,7 @@ impl Notifier for DiscordNotifier {
 		let response = match self
 			.base
 			.client
-			.post(&self.url)
+			.post(&self.base.url)
 			.header("Content-Type", "application/json")
 			.json(&payload)
 			.send()
@@ -246,7 +246,7 @@ mod tests {
 		assert!(notifier.is_some());
 
 		let notifier = notifier.unwrap();
-		assert_eq!(notifier.url, "https://discord.example.com");
+		assert_eq!(notifier.base.url, "https://discord.example.com");
 		assert_eq!(notifier.base.title, "Test Alert");
 		assert_eq!(notifier.base.body_template, "Test message ${value}");
 	}
