@@ -8,7 +8,7 @@ use chrono::Utc;
 use hmac::{Hmac, Mac};
 use reqwest::{
 	header::{HeaderMap, HeaderName, HeaderValue},
-	Client, Method,
+	Method,
 };
 use serde::Serialize;
 use sha2::Sha256;
@@ -19,19 +19,17 @@ use crate::{
 	services::notification::{NotificationError, Notifier},
 };
 
+use super::BaseWebhookNotifier;
+
 /// HMAC SHA256 type alias
 type HmacSha256 = Hmac<Sha256>;
 
 /// Implementation of webhook notifications via webhooks
 pub struct WebhookNotifier {
+	/// Base notifier with common functionality
+	base: BaseWebhookNotifier,
 	/// Webhook URL for message delivery
 	url: String,
-	/// Title to display in the message
-	title: String,
-	/// Message template with variable placeholders
-	body_template: String,
-	/// HTTP client for webhook requests
-	client: Client,
 	/// HTTP method to use for the webhook request
 	method: Option<String>,
 	/// Secret to use for the webhook request
@@ -67,10 +65,8 @@ impl WebhookNotifier {
 		headers: Option<HashMap<String, String>>,
 	) -> Result<Self, Box<NotificationError>> {
 		Ok(Self {
+			base: BaseWebhookNotifier::new(title, body_template),
 			url,
-			title,
-			body_template,
-			client: Client::new(),
 			method: Some(method.unwrap_or("POST".to_string())),
 			secret: secret.map(|s| s.to_string()),
 			headers,
@@ -85,11 +81,8 @@ impl WebhookNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		let mut message = self.body_template.clone();
-		for (key, value) in variables {
-			message = message.replace(&format!("${{{}}}", key), value);
-		}
-		message
+		self.base
+			.format_message::<fn(&str, &str) -> String>(variables, None)
 	}
 
 	/// Creates a Webhook notifier from a trigger configuration
@@ -109,9 +102,7 @@ impl WebhookNotifier {
 				headers,
 			} => Some(Self {
 				url: url.clone(),
-				title: message.title.clone(),
-				body_template: message.body.clone(),
-				client: Client::new(),
+				base: BaseWebhookNotifier::new(message.title.clone(), message.body.clone()),
 				method: method.clone(),
 				secret: secret.clone(),
 				headers: headers.clone(),
@@ -154,7 +145,7 @@ impl Notifier for WebhookNotifier {
 	/// * `Result<(), anyhow::Error>` - Success or error
 	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
 		let payload = WebhookMessage {
-			title: self.title.clone(),
+			title: self.base.title.clone(),
 			body: message.to_string(),
 		};
 
@@ -210,6 +201,7 @@ impl Notifier for WebhookNotifier {
 		}
 
 		let response = match self
+			.base
 			.client
 			.request(method, self.url.as_str())
 			.headers(headers)
@@ -360,8 +352,8 @@ mod tests {
 
 		let notifier = notifier.unwrap();
 		assert_eq!(notifier.url, "https://webhook.example.com");
-		assert_eq!(notifier.title, "Test Alert");
-		assert_eq!(notifier.body_template, "Test message ${value}");
+		assert_eq!(notifier.base.title, "Test Alert");
+		assert_eq!(notifier.base.body_template, "Test message ${value}");
 	}
 
 	////////////////////////////////////////////////////////////

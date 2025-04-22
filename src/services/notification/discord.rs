@@ -4,7 +4,6 @@
 //! via incoming webhooks, supporting message templates with variable substitution.
 
 use async_trait::async_trait;
-use reqwest::Client;
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -13,16 +12,14 @@ use crate::{
 	services::notification::{NotificationError, Notifier},
 };
 
+use super::BaseWebhookNotifier;
+
 /// Implementation of Discord notifications via webhooks
 pub struct DiscordNotifier {
+	/// Base notifier with common functionality
+	base: BaseWebhookNotifier,
 	/// Discord webhook URL for message delivery
-	url: String,
-	/// Title to display in the message
-	title: String,
-	/// Message template with variable placeholders
-	body_template: String,
-	/// HTTP client for webhook requests
-	client: Client,
+	url: String, // TODO: move this url to the base notifier!
 }
 
 /// Represents a field in a Discord embed message
@@ -90,9 +87,7 @@ impl DiscordNotifier {
 	) -> Result<Self, Box<NotificationError>> {
 		Ok(Self {
 			url,
-			title,
-			body_template,
-			client: Client::new(),
+			base: BaseWebhookNotifier::new(title, body_template),
 		})
 	}
 
@@ -104,11 +99,10 @@ impl DiscordNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		let mut message = self.body_template.clone();
-		for (key, value) in variables {
-			message = message.replace(&format!("${{{}}}", key), value);
+		fn formatter(title: &str, message: &str) -> String {
+			format!("*{}*\n\n{}", title, message)
 		}
-		format!("*{}*\n\n{}", self.title, message)
+		self.base.format_message(variables, Some(formatter))
 	}
 
 	/// Creates a Discord notifier from a trigger configuration
@@ -125,9 +119,7 @@ impl DiscordNotifier {
 				message,
 			} => Some(Self {
 				url: discord_url.clone(),
-				title: message.title.clone(),
-				body_template: message.body.clone(),
-				client: Client::new(),
+				base: BaseWebhookNotifier::new(message.title.clone(), message.body.clone()),
 			}),
 			_ => None,
 		}
@@ -152,6 +144,7 @@ impl Notifier for DiscordNotifier {
 		};
 
 		let response = match self
+			.base
 			.client
 			.post(&self.url)
 			.header("Content-Type", "application/json")
@@ -254,8 +247,8 @@ mod tests {
 
 		let notifier = notifier.unwrap();
 		assert_eq!(notifier.url, "https://discord.example.com");
-		assert_eq!(notifier.title, "Test Alert");
-		assert_eq!(notifier.body_template, "Test message ${value}");
+		assert_eq!(notifier.base.title, "Test Alert");
+		assert_eq!(notifier.base.body_template, "Test message ${value}");
 	}
 
 	////////////////////////////////////////////////////////////

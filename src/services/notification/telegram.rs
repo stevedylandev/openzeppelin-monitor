@@ -4,7 +4,6 @@
 //! via incoming webhooks, supporting message templates with variable substitution.
 
 use async_trait::async_trait;
-use reqwest::Client;
 use std::collections::HashMap;
 
 use crate::{
@@ -12,20 +11,18 @@ use crate::{
 	services::notification::{NotificationError, Notifier},
 };
 
+use super::BaseWebhookNotifier;
+
 /// Implementation of Telegram notifications via webhooks
 pub struct TelegramNotifier {
+	/// Base notifier with common functionality
+	base: BaseWebhookNotifier,
 	/// Telegram bot token
 	token: String,
 	/// Telegram chat ID
 	chat_id: String,
 	/// Disable web preview
 	disable_web_preview: bool,
-	/// Title to display in the message
-	title: String,
-	/// Message template with variable placeholders
-	body_template: String,
-	/// HTTP client for webhook requests
-	client: Client,
 	/// Base URL for the Telegram API
 	base_url: String,
 }
@@ -52,9 +49,7 @@ impl TelegramNotifier {
 			token,
 			chat_id,
 			disable_web_preview: disable_web_preview.unwrap_or(false),
-			title,
-			body_template,
-			client: Client::new(),
+			base: BaseWebhookNotifier::new(title, body_template),
 		})
 	}
 
@@ -66,14 +61,12 @@ impl TelegramNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		let mut message = self.body_template.clone();
-		for (key, value) in variables {
-			message = message.replace(&format!("${{{}}}", key), value);
+		// Use a type annotation to make the lifetimes work
+		fn formatter(title: &str, message: &str) -> String {
+			format!("*{}* \n\n{}", title, message)
 		}
-		// Markdown formatting for Telegram
-		// Double asterisks for bold text
-		// Double whitespaces for new line
-		format!("*{}* \n\n{}", self.title, message)
+
+		self.base.format_message(variables, Some(formatter))
 	}
 
 	/// Creates a Telegram notifier from a trigger configuration
@@ -95,9 +88,7 @@ impl TelegramNotifier {
 				token: token.clone(),
 				chat_id: chat_id.clone(),
 				disable_web_preview: disable_web_preview.unwrap_or(false),
-				title: message.title.clone(),
-				body_template: message.body.clone(),
-				client: Client::new(),
+				base: BaseWebhookNotifier::new(message.title.clone(), message.body.clone()),
 			}),
 			_ => None,
 		}
@@ -128,7 +119,7 @@ impl Notifier for TelegramNotifier {
 	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
 		let url = self.construct_url(message);
 
-		let response = match self.client.get(&url).send().await {
+		let response = match self.base.client.get(&url).send().await {
 			Ok(resp) => resp,
 			Err(e) => {
 				return Err(anyhow::anyhow!(
@@ -242,7 +233,8 @@ mod tests {
 		assert_eq!(notifier.token, "test-token");
 		assert_eq!(notifier.chat_id, "test-chat-id");
 		assert!(notifier.disable_web_preview);
-		assert_eq!(notifier.body_template, "Test message ${value}");
+		assert_eq!(notifier.base.title, "Alert");
+		assert_eq!(notifier.base.body_template, "Test message ${value}");
 	}
 
 	////////////////////////////////////////////////////////////
