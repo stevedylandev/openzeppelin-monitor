@@ -21,10 +21,62 @@ use crate::models::{MonitorMatch, ScriptLanguage, Trigger, TriggerType, TriggerT
 pub use discord::DiscordNotifier;
 pub use email::{EmailContent, EmailNotifier, SmtpConfig};
 pub use error::NotificationError;
+use reqwest::Client;
 pub use script::ScriptNotifier;
 pub use slack::SlackNotifier;
 pub use telegram::TelegramNotifier;
 pub use webhook::WebhookNotifier;
+
+/// Base implementation for webhook-style notifiers
+pub struct BaseWebhookNotifier {
+	/// HTTP client for webhook requests
+	pub client: Client,
+	/// Title to display in the message
+	pub title: String,
+	/// Message template with variable placeholders
+	pub body_template: String,
+}
+
+impl BaseWebhookNotifier {
+	/// Creates a new base webhook notifier instance
+	pub fn new(title: String, body_template: String) -> Self {
+		Self {
+			client: Client::new(),
+			title,
+			body_template,
+		}
+	}
+
+	/// Formats a message by substituting variables in the template
+	/// and applying optional custom formatting
+	///
+	/// # Arguments
+	/// * `variables` - Map of variable names to values
+	/// * `formatter` - Optional function to apply custom formatting to the message and title
+	///
+	/// # Returns
+	/// * `String` - Formatted message with variables replaced and formatting applied
+	pub fn format_message<F>(
+		&self,
+		variables: &HashMap<String, String>,
+		formatter: Option<F>,
+	) -> String
+	where
+		F: FnOnce(&str, &str) -> String,
+	{
+		// Common variable substitution
+		let mut message = self.body_template.clone();
+		for (key, value) in variables {
+			message = message.replace(&format!("${{{}}}", key), value);
+		}
+
+		// Apply custom formatting if provided
+		match formatter {
+			Some(func) => func(&self.title, &message),
+			None => message, // Default is to return just the message without title formatting
+		}
+	}
+}
 
 /// Interface for notification implementations
 ///
