@@ -12,12 +12,12 @@ use crate::{
 	services::notification::{NotificationError, Notifier},
 };
 
-use super::BaseWebhookNotifier;
+use super::WebhookNotifier;
 
 /// Implementation of Discord notifications via webhooks
 pub struct DiscordNotifier {
 	/// Base notifier with common functionality
-	base: BaseWebhookNotifier,
+	inner: WebhookNotifier,
 }
 
 /// Represents a field in a Discord embed message
@@ -84,7 +84,7 @@ impl DiscordNotifier {
 		body_template: String,
 	) -> Result<Self, Box<NotificationError>> {
 		Ok(Self {
-			base: BaseWebhookNotifier::new(url, title, body_template),
+			inner: WebhookNotifier::new(url, title, body_template, None, None, None, None)?,
 		})
 	}
 
@@ -96,10 +96,7 @@ impl DiscordNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		fn formatter(title: &str, message: &str) -> String {
-			format!("*{}*\n\n{}", title, message)
-		}
-		self.base.format_message(variables, Some(formatter))
+		self.inner.format_message(variables)
 	}
 
 	/// Creates a Discord notifier from a trigger configuration
@@ -115,11 +112,16 @@ impl DiscordNotifier {
 				discord_url,
 				message,
 			} => Some(Self {
-				base: BaseWebhookNotifier::new(
+				inner: WebhookNotifier::new(
 					discord_url.clone(),
 					message.title.clone(),
 					message.body.clone(),
-				),
+					None,
+					None,
+					None,
+					None,
+				)
+				.ok()?,
 			}),
 			_ => None,
 		}
@@ -135,40 +137,27 @@ impl Notifier for DiscordNotifier {
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
-		let payload = DiscordMessage {
-			content: message.to_string(),
+	/// Sends a formatted message to Discord
+	///
+	/// # Arguments
+	/// * `message` - The formatted message to send
+	///
+	/// # Returns
+	/// * `Result<(), anyhow::Error>` - Success or error
+	async fn notify(
+		&self,
+		message: &str,
+		is_custom_payload: Option<bool>,
+	) -> Result<(), anyhow::Error> {
+		let formatted_message = format!("*{}*\n\n{}", self.inner.title, message);
+		let discord_message = DiscordMessage {
+			content: formatted_message,
 			username: None,
 			avatar_url: None,
 			embeds: None,
 		};
-
-		let response = match self
-			.base
-			.client
-			.post(&self.base.url)
-			.header("Content-Type", "application/json")
-			.json(&payload)
-			.send()
-			.await
-		{
-			Ok(resp) => resp,
-			Err(e) => {
-				return Err(anyhow::anyhow!(
-					"Failed to send Discord notification: {}",
-					e
-				));
-			}
-		};
-
-		if !response.status().is_success() {
-			return Err(anyhow::anyhow!(
-				"Discord webhook returned error status: {}",
-				response.status()
-			));
-		}
-
-		Ok(())
+		let payload = serde_json::to_string(&discord_message)?;
+		self.inner.notify(&payload, is_custom_payload).await
 	}
 }
 
@@ -210,7 +199,7 @@ mod tests {
 		variables.insert("status".to_string(), "critical".to_string());
 
 		let result = notifier.format_message(&variables);
-		assert_eq!(result, "*Alert*\n\nValue is 100 and status is critical");
+		assert_eq!(result, "Value is 100 and status is critical");
 	}
 
 	#[test]
@@ -222,7 +211,7 @@ mod tests {
 		// status variable is not provided
 
 		let result = notifier.format_message(&variables);
-		assert_eq!(result, "*Alert*\n\nValue is 100 and status is ${status}");
+		assert_eq!(result, "Value is 100 and status is ${status}");
 	}
 
 	#[test]
@@ -231,7 +220,7 @@ mod tests {
 
 		let variables = HashMap::new();
 		let result = notifier.format_message(&variables);
-		assert_eq!(result, "*Alert*\n\n");
+		assert_eq!(result, "");
 	}
 
 	////////////////////////////////////////////////////////////
@@ -246,9 +235,9 @@ mod tests {
 		assert!(notifier.is_some());
 
 		let notifier = notifier.unwrap();
-		assert_eq!(notifier.base.url, "https://discord.example.com");
-		assert_eq!(notifier.base.title, "Test Alert");
-		assert_eq!(notifier.base.body_template, "Test message ${value}");
+		assert_eq!(notifier.inner.url, "https://discord.example.com");
+		assert_eq!(notifier.inner.title, "Test Alert");
+		assert_eq!(notifier.inner.body_template, "Test message ${value}");
 	}
 
 	////////////////////////////////////////////////////////////
@@ -258,7 +247,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_notify_failure() {
 		let notifier = create_test_notifier("Test message");
-		let result = notifier.notify("Test message").await;
+		let result = notifier.notify("Test message", Some(true)).await;
 		assert!(result.is_err());
 	}
 }

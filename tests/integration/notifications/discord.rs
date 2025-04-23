@@ -64,7 +64,7 @@ async fn test_discord_notification_success() {
 	variables.insert("value".to_string(), "42".to_string());
 	let message = notifier.format_message(&variables);
 
-	let result = notifier.notify(&message).await;
+	let result = notifier.notify(&message, Some(true)).await;
 
 	assert!(result.is_ok());
 	mock.assert();
@@ -88,7 +88,7 @@ async fn test_discord_notification_failure() {
 	)
 	.unwrap();
 
-	let result = notifier.notify("Test message").await;
+	let result = notifier.notify("Test message", Some(true)).await;
 
 	assert!(result.is_err());
 	mock.assert();

@@ -21,65 +21,10 @@ use crate::models::{MonitorMatch, ScriptLanguage, Trigger, TriggerType, TriggerT
 pub use discord::DiscordNotifier;
 pub use email::{EmailContent, EmailNotifier, SmtpConfig};
 pub use error::NotificationError;
-use reqwest::Client;
 pub use script::ScriptNotifier;
 pub use slack::SlackNotifier;
 pub use telegram::TelegramNotifier;
 pub use webhook::WebhookNotifier;
-
-/// Base implementation for webhook-style notifiers
-pub struct BaseWebhookNotifier {
-	/// HTTP client for requests
-	pub client: Client,
-	/// URL for the notifier
-	pub url: String,
-	/// Title to display in the message
-	pub title: String,
-	/// Message template with variable placeholders
-	pub body_template: String,
-}
-
-impl BaseWebhookNotifier {
-	/// Creates a new base webhook notifier instance
-	pub fn new(url: String, title: String, body_template: String) -> Self {
-		Self {
-			client: Client::new(),
-			url,
-			title,
-			body_template,
-		}
-	}
-
-	/// Formats a message by substituting variables in the template
-	/// and applying optional custom formatting
-	///
-	/// # Arguments
-	/// * `variables` - Map of variable names to values
-	/// * `formatter` - Optional function to apply custom formatting to the message and title
-	///
-	/// # Returns
-	/// * `String` - Formatted message with variables replaced and formatting applied
-	pub fn format_message<F>(
-		&self,
-		variables: &HashMap<String, String>,
-		formatter: Option<F>,
-	) -> String
-	where
-		F: FnOnce(&str, &str) -> String,
-	{
-		// Common variable substitution
-		let mut message = self.body_template.clone();
-		for (key, value) in variables {
-			message = message.replace(&format!("${{{}}}", key), value);
-		}
-
-		// Apply custom formatting if provided
-		match formatter {
-			Some(func) => func(&self.title, &message),
-			None => message, // Default is to return just the message without title formatting
-		}
-	}
-}
 
 /// Interface for notification implementations
 ///
@@ -94,7 +39,11 @@ pub trait Notifier {
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(&self, message: &str) -> Result<(), anyhow::Error>;
+	async fn notify(
+		&self,
+		message: &str,
+		is_custom_payload: Option<bool>,
+	) -> Result<(), anyhow::Error>;
 }
 
 /// Interface for executing scripts
@@ -150,7 +99,7 @@ impl NotificationService {
 				let notifier = SlackNotifier::from_config(&trigger.config);
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables))
+						.notify(&notifier.format_message(&variables), Some(true))
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)
@@ -167,7 +116,7 @@ impl NotificationService {
 				let notifier = EmailNotifier::from_config(&trigger.config);
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables))
+						.notify(&notifier.format_message(&variables), None)
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)
@@ -184,7 +133,7 @@ impl NotificationService {
 				let notifier = WebhookNotifier::from_config(&trigger.config);
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables))
+						.notify(&notifier.format_message(&variables), None)
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)
@@ -202,7 +151,7 @@ impl NotificationService {
 
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables))
+						.notify(&notifier.format_message(&variables), Some(true))
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)
@@ -219,7 +168,7 @@ impl NotificationService {
 				let notifier = TelegramNotifier::from_config(&trigger.config);
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables))
+						.notify(&notifier.format_message(&variables), Some(true))
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)

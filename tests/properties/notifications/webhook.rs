@@ -33,10 +33,11 @@ proptest! {
 		template in "[a-zA-Z0-9 ${}_]{1,100}",
 		vars in template_variables_strategy()
 	) {
-			let notifier = WebhookNotifier::new(
+		let notifier = WebhookNotifier::new(
 			"https://webhook.com/test".to_string(),
 			"Test".to_string(),
 			template.clone(),
+			None,
 			None,
 			None,
 			None,
@@ -66,6 +67,7 @@ proptest! {
 			None,
 			None,
 			None,
+			None,
 		).unwrap();
 
 		let formatted = notifier.format_message(&vars);
@@ -88,6 +90,7 @@ proptest! {
 			"https://webhook.com/test".to_string(),
 			"Test".to_string(),
 			template.clone(),
+			None,
 			None,
 			None,
 			None,

@@ -7,23 +7,14 @@ async fn test_telegram_notification_success() {
 	let mut server = mockito::Server::new_async().await;
 	// Mock the Telegram API endpoint
 	let mock = server
-		.mock("GET", "/bottest_token/sendMessage")
-		.match_query(mockito::Matcher::UrlEncoded(
-			"text".to_string(),
-			"*Test Alert* \n\nTest message with value 42".to_string(),
-		))
-		.match_query(mockito::Matcher::UrlEncoded(
-			"chat_id".to_string(),
-			"test_chat_id".to_string(),
-		))
-		.match_query(mockito::Matcher::UrlEncoded(
-			"parse_mode".to_string(),
-			"markdown".to_string(),
-		))
-		.match_query(mockito::Matcher::UrlEncoded(
-			"disable_web_page_preview".to_string(),
-			"false".to_string(),
-		))
+		.mock("POST", "/bottest_token/sendMessage")
+		.match_header("Content-Type", "application/json")
+		.match_body(mockito::Matcher::Json(serde_json::json!({
+			"chat_id": "test_chat_id",
+			"disable_web_page_preview": false,
+			"parse_mode": "markdown",
+			"text": "*Test Alert*\n\nTest message with value 42"
+		})))
 		.with_status(200)
 		.with_body(r#"{"ok": true, "result": {}}"#)
 		.create_async()
@@ -44,7 +35,7 @@ async fn test_telegram_notification_success() {
 	variables.insert("value".to_string(), "42".to_string());
 	let message = notifier.format_message(&variables);
 
-	let result = notifier.notify(&message).await;
+	let result = notifier.notify(&message, Some(true)).await;
 
 	assert!(result.is_ok());
 	mock.assert();
@@ -55,15 +46,14 @@ async fn test_telegram_notification_failure() {
 	// Setup async mock server to simulate failure
 	let mut server = mockito::Server::new_async().await;
 	let mock = server
-		.mock("GET", "/bottest_token/sendMessage")
-		.match_query(mockito::Matcher::UrlEncoded(
-			"text".to_string(),
-			"*Test Alert* \n\nTest message with value 42".to_string(),
-		))
-		.match_query(mockito::Matcher::UrlEncoded(
-			"chat_id".to_string(),
-			"test_chat_id".to_string(),
-		))
+		.mock("POST", "/bottest_token/sendMessage")
+		.match_header("Content-Type", "application/json")
+		.match_body(mockito::Matcher::Json(serde_json::json!({
+			"chat_id": "test_chat_id",
+			"disable_web_page_preview": false,
+			"parse_mode": "markdown",
+			"text": "*Test Alert*\n\nTest message with value 42"
+		})))
 		.with_status(500)
 		.with_body("Internal Server Error")
 		.create_async()
@@ -79,7 +69,12 @@ async fn test_telegram_notification_failure() {
 	)
 	.unwrap();
 
-	let result = notifier.notify("Test message").await;
+	// Prepare and send test message
+	let mut variables = HashMap::new();
+	variables.insert("value".to_string(), "42".to_string());
+	let message = notifier.format_message(&variables);
+
+	let result = notifier.notify(&message, Some(true)).await;
 
 	assert!(result.is_err());
 	mock.assert();

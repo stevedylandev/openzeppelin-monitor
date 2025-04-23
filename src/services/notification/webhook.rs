@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
+use reqwest::Client;
 use reqwest::{
 	header::{HeaderMap, HeaderName, HeaderValue},
 	Method,
@@ -19,28 +20,38 @@ use crate::{
 	services::notification::{NotificationError, Notifier},
 };
 
-use super::BaseWebhookNotifier;
-
 /// HMAC SHA256 type alias
 type HmacSha256 = Hmac<Sha256>;
 
 /// Implementation of webhook notifications via webhooks
+#[derive(Serialize)]
 pub struct WebhookNotifier {
-	/// Base notifier with common functionality
-	base: BaseWebhookNotifier,
+	/// Webhook URL for message delivery
+	pub url: String,
+	/// Message title
+	pub title: String,
+	/// Message template with variable placeholders
+	pub body_template: String,
+	/// HTTP client for webhook requests
+	#[serde(skip)]
+	client: Client,
 	/// HTTP method to use for the webhook request
 	method: Option<String>,
 	/// Secret to use for the webhook request
 	secret: Option<String>,
 	/// Headers to use for the webhook request
 	headers: Option<HashMap<String, String>>,
+	/// Custom payload fields
+	#[serde(flatten)]
+	pub payload_fields: HashMap<String, serde_json::Value>,
 }
 
 /// Represents a formatted webhook message
 #[derive(Serialize, Debug)]
 pub struct WebhookMessage {
-	/// The content of the message
+	/// The title of the message
 	title: String,
+	/// The body of the message
 	body: String,
 }
 
@@ -61,12 +72,17 @@ impl WebhookNotifier {
 		method: Option<String>,
 		secret: Option<String>,
 		headers: Option<HashMap<String, String>>,
+		payload_fields: Option<HashMap<String, serde_json::Value>>,
 	) -> Result<Self, Box<NotificationError>> {
 		Ok(Self {
-			base: BaseWebhookNotifier::new(url, title, body_template),
+			url,
+			title,
+			body_template,
+			client: Client::new(),
 			method: Some(method.unwrap_or("POST".to_string())),
 			secret: secret.map(|s| s.to_string()),
 			headers,
+			payload_fields: payload_fields.unwrap_or_default(),
 		})
 	}
 
@@ -78,8 +94,11 @@ impl WebhookNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		self.base
-			.format_message::<fn(&str, &str) -> String>(variables, None)
+		let mut message = self.body_template.clone();
+		for (key, value) in variables {
+			message = message.replace(&format!("${{{}}}", key), value);
+		}
+		message
 	}
 
 	/// Creates a Webhook notifier from a trigger configuration
@@ -98,14 +117,14 @@ impl WebhookNotifier {
 				secret,
 				headers,
 			} => Some(Self {
-				base: BaseWebhookNotifier::new(
-					url.clone(),
-					message.title.clone(),
-					message.body.clone(),
-				),
+				url: url.clone(),
+				title: message.title.clone(),
+				body_template: message.body.clone(),
+				client: Client::new(),
 				method: method.clone(),
 				secret: secret.clone(),
 				headers: headers.clone(),
+				payload_fields: HashMap::new(),
 			}),
 			_ => None,
 		}
@@ -114,7 +133,7 @@ impl WebhookNotifier {
 	pub fn sign_request(
 		&self,
 		secret: &str,
-		payload: &WebhookMessage,
+		payload: &serde_json::Value,
 	) -> Result<(String, String), Box<NotificationError>> {
 		let timestamp = Utc::now().timestamp_millis();
 
@@ -143,10 +162,20 @@ impl Notifier for WebhookNotifier {
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
-		let payload = WebhookMessage {
-			title: self.base.title.clone(),
-			body: message.to_string(),
+	async fn notify(
+		&self,
+		payload: &str,
+		is_custom_payload: Option<bool>,
+	) -> Result<(), anyhow::Error> {
+		let payload = if is_custom_payload.unwrap_or(false) {
+			// Treat message as a JSON string and parse it
+			serde_json::from_str(payload)?
+		} else {
+			// Create standard webhook message
+			serde_json::to_value(WebhookMessage {
+				title: self.title.clone(),
+				body: payload.to_string(),
+			})?
 		};
 
 		let method = if let Some(ref m) = self.method {
@@ -154,7 +183,6 @@ impl Notifier for WebhookNotifier {
 		} else {
 			Method::POST
 		};
-
 		let mut headers = HeaderMap::new();
 
 		if let Some(secret) = &self.secret {
@@ -201,9 +229,8 @@ impl Notifier for WebhookNotifier {
 		}
 
 		let response = match self
-			.base
 			.client
-			.request(method, self.base.url.as_str())
+			.request(method, self.url.as_str())
 			.headers(headers)
 			.json(&payload)
 			.send()
@@ -250,6 +277,7 @@ mod tests {
 			Some("POST".to_string()),
 			secret.map(|s| s.to_string()),
 			headers,
+			None,
 		)
 		.unwrap()
 	}
@@ -326,10 +354,11 @@ mod tests {
 			Some("test-secret"),
 			None,
 		);
-		let payload = WebhookMessage {
+		let payload = serde_json::to_value(WebhookMessage {
 			title: "Test Title".to_string(),
 			body: "Test message".to_string(),
-		};
+		})
+		.unwrap();
 		let secret = "test-secret";
 
 		let result = notifier.sign_request(secret, &payload).unwrap();
@@ -351,9 +380,9 @@ mod tests {
 		assert!(notifier.is_some());
 
 		let notifier = notifier.unwrap();
-		assert_eq!(notifier.base.url, "https://webhook.example.com");
-		assert_eq!(notifier.base.title, "Test Alert");
-		assert_eq!(notifier.base.body_template, "Test message ${value}");
+		assert_eq!(notifier.url, "https://webhook.example.com");
+		assert_eq!(notifier.title, "Test Alert");
+		assert_eq!(notifier.body_template, "Test message ${value}");
 	}
 
 	////////////////////////////////////////////////////////////
@@ -364,7 +393,7 @@ mod tests {
 	async fn test_notify_failure() {
 		let notifier =
 			create_test_notifier("https://webhook.example.com", "Test message", None, None);
-		let result = notifier.notify("Test message").await;
+		let result = notifier.notify("Test message", None).await;
 		assert!(result.is_err());
 	}
 
@@ -390,7 +419,7 @@ mod tests {
 			)])),
 		);
 
-		let response = notifier.notify("Test message").await;
+		let response = notifier.notify("Test message", None).await;
 
 		assert!(response.is_ok());
 
@@ -414,7 +443,7 @@ mod tests {
 			Some(invalid_headers),
 		);
 
-		let result = notifier.notify("Test message").await;
+		let result = notifier.notify("Test message", None).await;
 		let err = result.unwrap_err();
 		assert!(err.to_string().contains("Invalid header name"));
 	}
@@ -432,7 +461,7 @@ mod tests {
 			Some(invalid_headers),
 		);
 
-		let result = notifier.notify("Test message").await;
+		let result = notifier.notify("Test message", None).await;
 		let err = result.unwrap_err();
 		assert!(err.to_string().contains("Invalid header value"));
 	}
@@ -460,7 +489,7 @@ mod tests {
 			Some(valid_headers),
 		);
 
-		let result = notifier.notify("Test message").await;
+		let result = notifier.notify("Test message", None).await;
 		assert!(result.is_ok());
 		mock.assert();
 	}
@@ -484,7 +513,7 @@ mod tests {
 			None,
 		);
 
-		let result = notifier.notify("Test message").await;
+		let result = notifier.notify("Test message", None).await;
 		assert!(result.is_ok());
 		mock.assert();
 	}
@@ -498,10 +527,11 @@ mod tests {
 			None,
 		);
 
-		let payload = WebhookMessage {
+		let payload = serde_json::to_value(WebhookMessage {
 			title: "Test Title".to_string(),
 			body: "Test message".to_string(),
-		};
+		})
+		.unwrap();
 
 		let result = notifier.sign_request("test-secret", &payload).unwrap();
 		let (signature, timestamp) = result;

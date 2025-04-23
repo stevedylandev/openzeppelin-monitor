@@ -57,6 +57,7 @@ async fn test_webhook_notification_success() {
 		Some("GET".to_string()),
 		None,
 		None,
+		None,
 	)
 	.unwrap();
 
@@ -65,7 +66,7 @@ async fn test_webhook_notification_success() {
 	variables.insert("value".to_string(), "42".to_string());
 	let message = notifier.format_message(&variables);
 
-	let result = notifier.notify(&message).await;
+	let result = notifier.notify(&message, None).await;
 
 	assert!(result.is_ok());
 	mock.assert();
@@ -89,10 +90,11 @@ async fn test_webhook_notification_failure() {
 		Some("GET".to_string()),
 		None,
 		None,
+		None,
 	)
 	.unwrap();
 
-	let result = notifier.notify("Test message").await;
+	let result = notifier.notify("Test message", None).await;
 
 	assert!(result.is_err());
 	mock.assert();

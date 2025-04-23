@@ -18,7 +18,7 @@ mock! {
 
 	#[async_trait]
 	impl Notifier for EmailNotifier {
-		async fn notify(&self, message: &str) -> Result<(), anyhow::Error>;
+		async fn notify(&self, message: &str, is_custom_payload: Option<bool>) -> Result<(), anyhow::Error>;
 	}
 }
 
@@ -57,7 +57,7 @@ async fn test_email_notification_success() {
 
 	let notifier = EmailNotifier::with_transport(email_content, mock_transport);
 
-	let result = notifier.notify("Test message").await;
+	let result = notifier.notify("Test message", None).await;
 	assert!(result.is_ok());
 }
 
@@ -79,6 +79,6 @@ async fn test_email_notification_failure() {
 
 	let notifier = EmailNotifier::with_transport(email_content, mock_transport);
 
-	let result = notifier.notify("Test message").await;
+	let result = notifier.notify("Test message", None).await;
 	assert!(result.is_err());
 }
