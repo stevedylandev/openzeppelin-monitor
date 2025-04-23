@@ -1,7 +1,13 @@
+[tasks.rust-docs]
+description = "Build rust docs"
+script = [
+  "cargo doc --target-dir docs/rust_docs --no-deps --release --quiet --locked",
+]
+
 [tasks.rust-antora]
 description = "Build Antora site and copy rust_docs"
 script = [
-  "cargo doc --target-dir docs/modules/ROOT/pages/rust_docs --no-deps --locked",
+  "cargo doc --target-dir docs/modules/ROOT/pages/rust_docs --no-deps --release --quiet --locked",
   "cd docs",
   "bash ../scripts/rust_antora.sh"
 ]

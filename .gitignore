@@ -43,6 +43,7 @@ coverage/
 docs/build/
 rust_docs
 
+
 # Ignore node_modules
 node_modules
 
