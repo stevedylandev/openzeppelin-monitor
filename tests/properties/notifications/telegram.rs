@@ -98,6 +98,6 @@ proptest! {
 		let formatted = notifier.format_message(&empty_vars);
 
 		// Template should remain unchanged when no variables are provided
-		prop_assert_eq!(formatted, template);
+		prop_assert_eq!(formatted, format!("*Test* \n\n{}", template));
 	}
 }

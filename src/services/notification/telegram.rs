@@ -6,12 +6,11 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 
+use crate::services::notification::webhook::WebhookNotifier;
 use crate::{
 	models::TriggerTypeConfig,
 	services::notification::{NotificationError, Notifier},
 };
-
-use super::WebhookNotifier;
 
 /// Implementation of Telegram notifications via webhooks
 pub struct TelegramNotifier {
@@ -73,7 +72,14 @@ impl TelegramNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		self.inner.format_message(variables)
+		let mut message = self.inner.body_template.clone();
+		for (key, value) in variables {
+			message = message.replace(&format!("${{{}}}", key), value);
+		}
+		// Markdown formatting for Telegram
+		// Double asterisks for bold text
+		// Double whitespaces for new line
+		format!("*{}* \n\n{}", self.inner.title, message)
 	}
 
 	/// Creates a Telegram notifier from a trigger configuration
@@ -136,10 +142,8 @@ impl Notifier for TelegramNotifier {
 		message: &str,
 		is_custom_payload: Option<bool>,
 	) -> Result<(), anyhow::Error> {
-		let formatted_message = format!("*{}*\n\n{}", self.inner.title, message);
-
 		let custom_payload = serde_json::json!({
-			"text": formatted_message,
+			"text": message,
 			"chat_id": self.inner.payload_fields.get("chat_id").unwrap(),
 			"parse_mode": self.inner.payload_fields.get("parse_mode").unwrap(),
 			"disable_web_page_preview": self.inner.payload_fields.get("disable_web_page_preview").unwrap()
@@ -194,7 +198,7 @@ mod tests {
 		variables.insert("status".to_string(), "critical".to_string());
 
 		let result = notifier.format_message(&variables);
-		assert_eq!(result, "Value is 100 and status is critical");
+		assert_eq!(result, "*Alert* \n\nValue is 100 and status is critical");
 	}
 
 	#[test]
@@ -206,7 +210,7 @@ mod tests {
 		// status variable is not provided
 
 		let result = notifier.format_message(&variables);
-		assert_eq!(result, "Value is 100 and status is ${status}");
+		assert_eq!(result, "*Alert* \n\nValue is 100 and status is ${status}");
 	}
 
 	#[test]
@@ -215,7 +219,7 @@ mod tests {
 
 		let variables = HashMap::new();
 		let result = notifier.format_message(&variables);
-		assert_eq!(result, "");
+		assert_eq!(result, "*Alert* \n\n");
 	}
 
 	////////////////////////////////////////////////////////////

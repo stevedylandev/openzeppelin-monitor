@@ -92,7 +92,6 @@ impl WebhookNotifier {
 	/// * `variables` - Map of variable names to values
 	///
 	/// # Returns
-	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
 		let mut message = self.body_template.clone();
 		for (key, value) in variables {

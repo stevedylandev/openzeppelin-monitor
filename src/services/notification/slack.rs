@@ -7,12 +7,11 @@ use async_trait::async_trait;
 use serde::Serialize;
 use std::collections::HashMap;
 
+use crate::services::notification::webhook::WebhookNotifier;
 use crate::{
 	models::TriggerTypeConfig,
 	services::notification::{NotificationError, Notifier},
 };
-
-use super::WebhookNotifier;
 
 /// Implementation of Slack notifications via webhooks
 pub struct SlackNotifier {
@@ -52,7 +51,11 @@ impl SlackNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		self.inner.format_message(variables)
+		let mut message = self.inner.body_template.clone();
+		for (key, value) in variables {
+			message = message.replace(&format!("${{{}}}", key), value);
+		}
+		format!("*{}*\n\n{}", self.inner.title, message)
 	}
 
 	/// Creates a Slack notifier from a trigger configuration
@@ -95,9 +98,8 @@ impl Notifier for SlackNotifier {
 		message: &str,
 		is_custom_payload: Option<bool>,
 	) -> Result<(), anyhow::Error> {
-		let formatted_message = format!("*{}*\n\n{}", self.inner.title, message);
 		let payload = SlackMessage {
-			text: formatted_message,
+			text: message.to_string(),
 		};
 		let payload_str = serde_json::to_string(&payload)?;
 		self.inner.notify(&payload_str, is_custom_payload).await
@@ -142,7 +144,7 @@ mod tests {
 		variables.insert("status".to_string(), "critical".to_string());
 
 		let result = notifier.format_message(&variables);
-		assert_eq!(result, "Value is 100 and status is critical");
+		assert_eq!(result, "*Alert*\n\nValue is 100 and status is critical");
 	}
 
 	#[test]
@@ -154,7 +156,7 @@ mod tests {
 		// status variable is not provided
 
 		let result = notifier.format_message(&variables);
-		assert_eq!(result, "Value is 100 and status is ${status}");
+		assert_eq!(result, "*Alert*\n\nValue is 100 and status is ${status}");
 	}
 
 	#[test]
@@ -163,7 +165,7 @@ mod tests {
 
 		let variables = HashMap::new();
 		let result = notifier.format_message(&variables);
-		assert_eq!(result, "");
+		assert_eq!(result, "*Alert*\n\n");
 	}
 
 	////////////////////////////////////////////////////////////

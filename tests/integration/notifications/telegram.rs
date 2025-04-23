@@ -13,7 +13,7 @@ async fn test_telegram_notification_success() {
 			"chat_id": "test_chat_id",
 			"disable_web_page_preview": false,
 			"parse_mode": "markdown",
-			"text": "*Test Alert*\n\nTest message with value 42"
+			"text": "*Test Alert* \n\nTest message with value 42"
 		})))
 		.with_status(200)
 		.with_body(r#"{"ok": true, "result": {}}"#)
@@ -52,7 +52,7 @@ async fn test_telegram_notification_failure() {
 			"chat_id": "test_chat_id",
 			"disable_web_page_preview": false,
 			"parse_mode": "markdown",
-			"text": "*Test Alert*\n\nTest message with value 42"
+			"text": "*Test Alert* \n\nTest message with value 42"
 		})))
 		.with_status(500)
 		.with_body("Internal Server Error")
