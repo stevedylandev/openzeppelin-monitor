@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FilterError"],"fn":["handle_match"],"mod":["evm_helpers","stellar_helpers"],"struct":["EVMBlockFilter","FilterService","StellarBlockFilter"],"trait":["BlockFilter"]};

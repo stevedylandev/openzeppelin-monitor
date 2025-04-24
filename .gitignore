@@ -41,7 +41,10 @@ coverage/
 
 # docs
 docs/build/
-rust_docs
+# rust_docs
+.rustc_info.json
+.rustdoc_fingerprint.json
+CACHEDIR.TAG
 
 # Ignore node_modules
 node_modules
