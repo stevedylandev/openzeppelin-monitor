@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::{
 	models::TriggerTypeConfig,
-	services::notification::{format_titled_message, NotificationError, Notifier, WebhookNotifier},
+	services::notification::{format_message, NotificationError, Notifier, WebhookNotifier},
 };
 
 /// Implementation of Discord notifications via webhooks
@@ -94,7 +94,7 @@ impl DiscordNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		format_titled_message::<fn(&str, &str) -> String>(
+		format_message::<fn(&str, &str) -> String>(
 			&self.inner.title,
 			&self.inner.body_template,
 			variables,

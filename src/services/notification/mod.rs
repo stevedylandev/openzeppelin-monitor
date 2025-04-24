@@ -52,7 +52,7 @@ pub trait Notifier {
 		&self,
 		_payload: &T,
 	) -> Result<(), anyhow::Error> {
-		Ok(())
+		Err(anyhow::anyhow!("Not implemented"))
 	}
 }
 
@@ -249,7 +249,7 @@ impl Default for NotificationService {
 	}
 }
 
-pub fn format_titled_message<F>(
+pub fn format_message<F>(
 	title: &str,
 	template: &str,
 	variables: &HashMap<String, String>,

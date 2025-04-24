@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use crate::{
 	models::TriggerTypeConfig,
-	services::notification::{format_titled_message, NotificationError, Notifier},
+	services::notification::{format_message, NotificationError, Notifier},
 };
 
 /// HMAC SHA256 type alias
@@ -94,7 +94,7 @@ impl WebhookNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		format_titled_message::<fn(&str, &str) -> String>(
+		format_message::<fn(&str, &str) -> String>(
 			&self.title,
 			&self.body_template,
 			variables,
