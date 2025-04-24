@@ -110,5 +110,5 @@ jobs:
           base: ${{ steps.validate_tag.outputs.DOCS_BRANCH }}
           sign-commits: true
           body: |
-            This PR pushs the rust docs to the docs branch, ${{ steps.validate_tag.outputs.DOCS_BRANCH }}.
+            This PR pushes the rust docs to the docs branch, ${{ steps.validate_tag.outputs.DOCS_BRANCH }}.
 
