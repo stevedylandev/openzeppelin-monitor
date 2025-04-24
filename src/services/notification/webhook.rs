@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 use crate::{
 	models::TriggerTypeConfig,
-	services::notification::{NotificationError, Notifier},
+	services::notification::{format_titled_message, NotificationError, Notifier},
 };
 
 /// HMAC SHA256 type alias
@@ -92,12 +92,14 @@ impl WebhookNotifier {
 	/// * `variables` - Map of variable names to values
 	///
 	/// # Returns
+	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		let mut message = self.body_template.clone();
-		for (key, value) in variables {
-			message = message.replace(&format!("${{{}}}", key), value);
-		}
-		message
+		format_titled_message::<fn(&str, &str) -> String>(
+			&self.title,
+			&self.body_template,
+			variables,
+			None,
+		)
 	}
 
 	/// Creates a Webhook notifier from a trigger configuration
@@ -132,7 +134,7 @@ impl WebhookNotifier {
 	pub fn sign_request(
 		&self,
 		secret: &str,
-		payload: &serde_json::Value,
+		payload: &WebhookMessage,
 	) -> Result<(String, String), Box<NotificationError>> {
 		let timestamp = Utc::now().timestamp_millis();
 
@@ -161,20 +163,10 @@ impl Notifier for WebhookNotifier {
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(
-		&self,
-		payload: &str,
-		is_custom_payload: Option<bool>,
-	) -> Result<(), anyhow::Error> {
-		let payload = if is_custom_payload.unwrap_or(false) {
-			// Treat message as a JSON string and parse it
-			serde_json::from_str(payload)?
-		} else {
-			// Create standard webhook message
-			serde_json::to_value(WebhookMessage {
-				title: self.title.clone(),
-				body: payload.to_string(),
-			})?
+	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
+		let payload = WebhookMessage {
+			title: self.title.clone(),
+			body: message.to_string(),
 		};
 
 		let method = if let Some(ref m) = self.method {
@@ -248,6 +240,60 @@ impl Notifier for WebhookNotifier {
 		if !response.status().is_success() {
 			return Err(anyhow::anyhow!(
 				"Webhook returned error status: {}",
+				response.status()
+			));
+		}
+
+		Ok(())
+	}
+
+	async fn notify_with_payload<T: Serialize + ?Sized + Send + Sync>(
+		&self,
+		payload: &T,
+	) -> Result<(), anyhow::Error> {
+		let method = if let Some(ref m) = self.method {
+			Method::from_bytes(m.as_bytes()).unwrap_or(Method::POST)
+		} else {
+			Method::POST
+		};
+		let mut headers = HeaderMap::new();
+
+		if let Some(headers_map) = &self.headers {
+			for (key, value) in headers_map {
+				let Ok(header_name) = HeaderName::from_bytes(key.as_bytes()) else {
+					return Err(anyhow::anyhow!("Invalid header name: {}", key));
+				};
+				let Ok(header_value) = HeaderValue::from_str(value) else {
+					return Err(anyhow::anyhow!(format!(
+						"Invalid header value for key: {}",
+						key
+					),));
+				};
+				headers.insert(header_name, header_value);
+			}
+		}
+
+		let response = match self
+			.client
+			.request(method, self.url.as_str())
+			.headers(headers)
+			.json(&payload)
+			.send()
+			.await
+		{
+			Ok(resp) => resp,
+			Err(e) => {
+				// Pass the original error as source instead of just its string representation
+				return Err(anyhow::anyhow!(
+					"Failed to send webhook notification with custom payload: {}",
+					e
+				));
+			}
+		};
+
+		if !response.status().is_success() {
+			return Err(anyhow::anyhow!(
+				"Webhook with custom payload returned error status: {}",
 				response.status()
 			));
 		}
@@ -353,11 +399,10 @@ mod tests {
 			Some("test-secret"),
 			None,
 		);
-		let payload = serde_json::to_value(WebhookMessage {
+		let payload = WebhookMessage {
 			title: "Test Title".to_string(),
 			body: "Test message".to_string(),
-		})
-		.unwrap();
+		};
 		let secret = "test-secret";
 
 		let result = notifier.sign_request(secret, &payload).unwrap();
@@ -392,7 +437,7 @@ mod tests {
 	async fn test_notify_failure() {
 		let notifier =
 			create_test_notifier("https://webhook.example.com", "Test message", None, None);
-		let result = notifier.notify("Test message", None).await;
+		let result = notifier.notify("Test message").await;
 		assert!(result.is_err());
 	}
 
@@ -418,7 +463,7 @@ mod tests {
 			)])),
 		);
 
-		let response = notifier.notify("Test message", None).await;
+		let response = notifier.notify("Test message").await;
 
 		assert!(response.is_ok());
 
@@ -442,7 +487,7 @@ mod tests {
 			Some(invalid_headers),
 		);
 
-		let result = notifier.notify("Test message", None).await;
+		let result = notifier.notify("Test message").await;
 		let err = result.unwrap_err();
 		assert!(err.to_string().contains("Invalid header name"));
 	}
@@ -460,7 +505,7 @@ mod tests {
 			Some(invalid_headers),
 		);
 
-		let result = notifier.notify("Test message", None).await;
+		let result = notifier.notify("Test message").await;
 		let err = result.unwrap_err();
 		assert!(err.to_string().contains("Invalid header value"));
 	}
@@ -488,7 +533,7 @@ mod tests {
 			Some(valid_headers),
 		);
 
-		let result = notifier.notify("Test message", None).await;
+		let result = notifier.notify("Test message").await;
 		assert!(result.is_ok());
 		mock.assert();
 	}
@@ -512,7 +557,7 @@ mod tests {
 			None,
 		);
 
-		let result = notifier.notify("Test message", None).await;
+		let result = notifier.notify("Test message").await;
 		assert!(result.is_ok());
 		mock.assert();
 	}
@@ -526,11 +571,10 @@ mod tests {
 			None,
 		);
 
-		let payload = serde_json::to_value(WebhookMessage {
+		let payload = WebhookMessage {
 			title: "Test Title".to_string(),
 			body: "Test message".to_string(),
-		})
-		.unwrap();
+		};
 
 		let result = notifier.sign_request("test-secret", &payload).unwrap();
 		let (signature, timestamp) = result;

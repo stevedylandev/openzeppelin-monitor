@@ -6,10 +6,9 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
 
-use crate::services::notification::webhook::WebhookNotifier;
 use crate::{
 	models::TriggerTypeConfig,
-	services::notification::{NotificationError, Notifier},
+	services::notification::{format_titled_message, NotificationError, Notifier, WebhookNotifier},
 };
 
 /// Implementation of Telegram notifications via webhooks
@@ -72,14 +71,12 @@ impl TelegramNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		let mut message = self.inner.body_template.clone();
-		for (key, value) in variables {
-			message = message.replace(&format!("${{{}}}", key), value);
-		}
-		// Markdown formatting for Telegram
-		// Double asterisks for bold text
-		// Double whitespaces for new line
-		format!("*{}* \n\n{}", self.inner.title, message)
+		format_titled_message::<fn(&str, &str) -> String>(
+			&self.inner.title,
+			&self.inner.body_template,
+			variables,
+			Some(|title, message| format!("*{}* \n\n{}", title, message)),
+		)
 	}
 
 	/// Creates a Telegram notifier from a trigger configuration
@@ -137,21 +134,14 @@ impl Notifier for TelegramNotifier {
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(
-		&self,
-		message: &str,
-		is_custom_payload: Option<bool>,
-	) -> Result<(), anyhow::Error> {
+	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
 		let custom_payload = serde_json::json!({
 			"text": message,
 			"chat_id": self.inner.payload_fields.get("chat_id").unwrap(),
 			"parse_mode": self.inner.payload_fields.get("parse_mode").unwrap(),
 			"disable_web_page_preview": self.inner.payload_fields.get("disable_web_page_preview").unwrap()
 		});
-
-		self.inner
-			.notify(&custom_payload.to_string(), is_custom_payload)
-			.await
+		self.inner.notify_with_payload(&custom_payload).await
 	}
 }
 
@@ -258,7 +248,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_notify_failure() {
 		let notifier = create_test_notifier("Test message");
-		let result = notifier.notify("Test message", None).await;
+		let result = notifier.notify("Test message").await;
 		assert!(result.is_err());
 	}
 }

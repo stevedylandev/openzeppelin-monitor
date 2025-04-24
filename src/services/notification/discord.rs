@@ -7,10 +7,9 @@ use async_trait::async_trait;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use crate::services::notification::webhook::WebhookNotifier;
 use crate::{
 	models::TriggerTypeConfig,
-	services::notification::{NotificationError, Notifier},
+	services::notification::{format_titled_message, NotificationError, Notifier, WebhookNotifier},
 };
 
 /// Implementation of Discord notifications via webhooks
@@ -95,11 +94,12 @@ impl DiscordNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		let mut message = self.inner.body_template.clone();
-		for (key, value) in variables {
-			message = message.replace(&format!("${{{}}}", key), value);
-		}
-		format!("*{}*\n\n{}", self.inner.title, message)
+		format_titled_message::<fn(&str, &str) -> String>(
+			&self.inner.title,
+			&self.inner.body_template,
+			variables,
+			Some(|title, message| format!("*{}*\n\n{}", title, message)),
+		)
 	}
 
 	/// Creates a Discord notifier from a trigger configuration
@@ -147,19 +147,14 @@ impl Notifier for DiscordNotifier {
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(
-		&self,
-		message: &str,
-		is_custom_payload: Option<bool>,
-	) -> Result<(), anyhow::Error> {
+	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
 		let discord_message = DiscordMessage {
 			content: message.to_string(),
 			username: None,
 			avatar_url: None,
 			embeds: None,
 		};
-		let payload = serde_json::to_string(&discord_message)?;
-		self.inner.notify(&payload, is_custom_payload).await
+		self.inner.notify_with_payload(&discord_message).await
 	}
 }
 
@@ -249,7 +244,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_notify_failure() {
 		let notifier = create_test_notifier("Test message");
-		let result = notifier.notify("Test message", Some(true)).await;
+		let result = notifier.notify("Test message").await;
 		assert!(result.is_err());
 	}
 }

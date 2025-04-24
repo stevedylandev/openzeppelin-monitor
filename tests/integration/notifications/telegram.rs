@@ -35,7 +35,7 @@ async fn test_telegram_notification_success() {
 	variables.insert("value".to_string(), "42".to_string());
 	let message = notifier.format_message(&variables);
 
-	let result = notifier.notify(&message, Some(true)).await;
+	let result = notifier.notify(&message).await;
 
 	assert!(result.is_ok());
 	mock.assert();
@@ -74,7 +74,7 @@ async fn test_telegram_notification_failure() {
 	variables.insert("value".to_string(), "42".to_string());
 	let message = notifier.format_message(&variables);
 
-	let result = notifier.notify(&message, Some(true)).await;
+	let result = notifier.notify(&message).await;
 
 	assert!(result.is_err());
 	mock.assert();

@@ -175,11 +175,7 @@ where
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(
-		&self,
-		message: &str,
-		_is_custom_payload: Option<bool>,
-	) -> Result<(), anyhow::Error> {
+	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
 		let recipients_str = self
 			.recipients
 			.iter()
@@ -337,7 +333,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_notify_failure() {
 		let notifier = create_test_notifier();
-		let result = notifier.notify("Test message", None).await;
+		let result = notifier.notify("Test message").await;
 		// Expected to fail since we're using a dummy SMTP server
 		assert!(result.is_err());
 	}

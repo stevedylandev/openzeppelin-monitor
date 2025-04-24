@@ -5,6 +5,7 @@
 
 use anyhow::Context;
 use async_trait::async_trait;
+use serde::Serialize;
 
 use std::collections::HashMap;
 
@@ -39,11 +40,20 @@ pub trait Notifier {
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(
+	async fn notify(&self, message: &str) -> Result<(), anyhow::Error>;
+	/// Sends a notification with a custom JSON payload
+	///
+	/// # Arguments
+	/// * `payload` - The Object payload to send
+	///
+	/// # Returns
+	/// * `Result<(), anyhow::Error>` - Success or error
+	async fn notify_with_payload<T: Serialize + ?Sized + Send + Sync>(
 		&self,
-		message: &str,
-		is_custom_payload: Option<bool>,
-	) -> Result<(), anyhow::Error>;
+		_payload: &T,
+	) -> Result<(), anyhow::Error> {
+		Ok(())
+	}
 }
 
 /// Interface for executing scripts
@@ -99,7 +109,7 @@ impl NotificationService {
 				let notifier = SlackNotifier::from_config(&trigger.config);
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables), Some(true))
+						.notify(&notifier.format_message(&variables))
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)
@@ -116,7 +126,7 @@ impl NotificationService {
 				let notifier = EmailNotifier::from_config(&trigger.config);
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables), None)
+						.notify(&notifier.format_message(&variables))
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)
@@ -133,7 +143,7 @@ impl NotificationService {
 				let notifier = WebhookNotifier::from_config(&trigger.config);
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables), None)
+						.notify(&notifier.format_message(&variables))
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)
@@ -151,7 +161,7 @@ impl NotificationService {
 
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables), Some(true))
+						.notify(&notifier.format_message(&variables))
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)
@@ -168,7 +178,7 @@ impl NotificationService {
 				let notifier = TelegramNotifier::from_config(&trigger.config);
 				if let Some(notifier) = notifier {
 					notifier
-						.notify(&notifier.format_message(&variables), Some(true))
+						.notify(&notifier.format_message(&variables))
 						.await
 						.with_context(|| {
 							format!("Failed to execute notification {}", trigger.name)
@@ -236,6 +246,25 @@ impl NotificationService {
 impl Default for NotificationService {
 	fn default() -> Self {
 		Self::new()
+	}
+}
+
+pub fn format_titled_message<F>(
+	title: &str,
+	template: &str,
+	variables: &HashMap<String, String>,
+	title_formatter: Option<F>,
+) -> String
+where
+	F: FnOnce(&str, &str) -> String,
+{
+	let mut message = template.to_string();
+	for (key, value) in variables {
+		message = message.replace(&format!("${{{}}}", key), value);
+	}
+	match title_formatter {
+		Some(formatter) => formatter(title, &message),
+		None => message,
 	}
 }
 

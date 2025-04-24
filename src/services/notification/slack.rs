@@ -7,10 +7,9 @@ use async_trait::async_trait;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use crate::services::notification::webhook::WebhookNotifier;
 use crate::{
 	models::TriggerTypeConfig,
-	services::notification::{NotificationError, Notifier},
+	services::notification::{format_titled_message, NotificationError, Notifier, WebhookNotifier},
 };
 
 /// Implementation of Slack notifications via webhooks
@@ -51,11 +50,12 @@ impl SlackNotifier {
 	/// # Returns
 	/// * `String` - Formatted message with variables replaced
 	pub fn format_message(&self, variables: &HashMap<String, String>) -> String {
-		let mut message = self.inner.body_template.clone();
-		for (key, value) in variables {
-			message = message.replace(&format!("${{{}}}", key), value);
-		}
-		format!("*{}*\n\n{}", self.inner.title, message)
+		format_titled_message::<fn(&str, &str) -> String>(
+			&self.inner.title,
+			&self.inner.body_template,
+			variables,
+			Some(|title, message| format!("*{}*\n\n{}", title, message)),
+		)
 	}
 
 	/// Creates a Slack notifier from a trigger configuration
@@ -93,16 +93,11 @@ impl Notifier for SlackNotifier {
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(
-		&self,
-		message: &str,
-		is_custom_payload: Option<bool>,
-	) -> Result<(), anyhow::Error> {
+	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
 		let payload = SlackMessage {
 			text: message.to_string(),
 		};
-		let payload_str = serde_json::to_string(&payload)?;
-		self.inner.notify(&payload_str, is_custom_payload).await
+		self.inner.notify_with_payload(&payload).await
 	}
 }
 
@@ -192,7 +187,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_notify_failure() {
 		let notifier = create_test_notifier("Test message");
-		let result = notifier.notify("Test message", Some(true)).await;
+		let result = notifier.notify("Test message").await;
 		assert!(result.is_err());
 	}
 }
