@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["bootstrap","models","repositories","services","utils"]};

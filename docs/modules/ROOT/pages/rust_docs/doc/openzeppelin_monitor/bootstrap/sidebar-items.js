@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["create_block_handler","create_trigger_handler","has_active_monitors","initialize_services","process_block"],"type":["Result"]};

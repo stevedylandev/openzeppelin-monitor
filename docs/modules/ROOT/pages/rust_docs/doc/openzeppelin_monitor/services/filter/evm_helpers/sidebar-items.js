@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["are_same_address","are_same_signature","b256_to_string","format_token_value","h160_to_string","h256_to_string","normalize_address","normalize_signature","string_to_h160","string_to_h256"]};

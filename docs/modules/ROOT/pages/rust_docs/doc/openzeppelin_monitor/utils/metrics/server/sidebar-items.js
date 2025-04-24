@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["create_metrics_server"],"type":["MonitorServiceArc","MonitorServiceData","NetworkServiceArc","NetworkServiceData","TriggerServiceArc","TriggerServiceData"]};

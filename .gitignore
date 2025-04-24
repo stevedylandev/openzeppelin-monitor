@@ -40,11 +40,25 @@ coverage/
 *-lcov.info
 
 # docs
-docs/build/
+# docs/build/
 # rust_docs
 .rustc_info.json
 .rustdoc_fingerprint.json
 CACHEDIR.TAG
+
+docs/build/site/_
+docs/build/site/_headers
+docs/build/site/_redirects
+docs/build/site/404.html
+docs/build/site/index.html
+docs/build/site/search-index.js
+docs/build/site/sitemap.xml
+docs/build/site/monitor/*/error.html
+docs/build/site/monitor/*/index.html
+docs/build/site/monitor/*/quickstart.html
+docs/build/site/monitor/*/rpc.html
+docs/build/site/monitor/*/scripts.html
+docs/build/site/monitor/*/structure.html
 
 # Ignore node_modules
 node_modules

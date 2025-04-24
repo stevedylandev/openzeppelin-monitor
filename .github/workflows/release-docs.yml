@@ -93,3 +93,22 @@ jobs:
           git push origin "${DOCS_BRANCH}"
         env:
           DOCS_BRANCH: ${{ steps.validate_tag.outputs.DOCS_BRANCH }}
+
+      - name: Generate Rust docs
+        run: |
+          cargo doc --target-dir docs/modules/ROOT/pages/rust_docs --no-deps --locked
+          cd docs
+          bash ../scripts/rust_antora.sh
+        shell: bash
+
+      - name: Commit rust docs changes
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e  # v7.0.8
+        with:
+          commit-message: "🤖 chore: Update the rust docs to the docs branch, ${{ steps.validate_tag.outputs.DOCS_BRANCH }}"
+          title: "chore: 🤖 [Automated PR] Update the rust docs"
+          token: ${{ steps.gh-app-token.outputs.token }}
+          base: ${{ steps.validate_tag.outputs.DOCS_BRANCH }}
+          sign-commits: true
+          body: |
+            This PR pushs the rust docs to the docs branch, ${{ steps.validate_tag.outputs.DOCS_BRANCH }}.
+
