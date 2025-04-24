@@ -1,0 +1,4 @@
+[build]
+base = "."
+command = "rustup default stable && cargo doc --target-dir ./ --no-deps --locked"
+publish = "doc/openzeppelin_monitor"
