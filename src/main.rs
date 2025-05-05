@@ -201,6 +201,7 @@ async fn main() -> Result<()> {
 		NetworkRepository,
 		TriggerRepository,
 	>(None, None, None)
+	.await
 	.map_err(|e| anyhow::anyhow!("Failed to initialize services: {}. Please refer to the documentation quickstart ({}) on how to configure the service.", e, DOCUMENTATION_URL))?;
 
 	// Pre-load all trigger scripts into memory at startup to reduce file I/O operations.
@@ -651,6 +652,7 @@ async fn validate_configuration() {
 		NetworkRepository,
 		TriggerRepository,
 	>(None, None, None)
+	.await
 	{
 		Ok((_, _, active_monitors, networks, _, _, _)) => {
 			info!("✓ Core services initialized successfully");
@@ -698,6 +700,7 @@ mod tests {
 				NetworkRepository,
 				TriggerRepository,
 			>(None, None, None)
+			.await
 			.unwrap();
 
 		let path = "test_monitor.json".to_string();
@@ -735,6 +738,7 @@ mod tests {
 				NetworkRepository,
 				TriggerRepository,
 			>(None, None, None)
+			.await
 			.unwrap();
 
 		// Test parameters

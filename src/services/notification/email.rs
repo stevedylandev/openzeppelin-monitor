@@ -159,8 +159,8 @@ impl EmailNotifier<SmtpTransport> {
 				let smtp_config = SmtpConfig {
 					host: host.clone(),
 					port: port.unwrap_or(465),
-					username: username.clone(),
-					password: password.clone(),
+					username: username.as_ref().to_string(),
+					password: password.as_ref().to_string(),
 				};
 
 				let email_content = EmailContent {
@@ -231,7 +231,7 @@ where
 
 #[cfg(test)]
 mod tests {
-	use crate::models::NotificationMessage;
+	use crate::models::{NotificationMessage, SecretString, SecretValue};
 
 	use super::*;
 
@@ -257,8 +257,8 @@ mod tests {
 		TriggerTypeConfig::Email {
 			host: "smtp.test.com".to_string(),
 			port,
-			username: "testuser".to_string(),
-			password: "testpass".to_string(),
+			username: SecretValue::Plain(SecretString::new("testuser".to_string())),
+			password: SecretValue::Plain(SecretString::new("testpass".to_string())),
 			message: NotificationMessage {
 				title: "Test Subject".to_string(),
 				body: "Hello ${name}".to_string(),

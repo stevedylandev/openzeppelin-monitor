@@ -3,9 +3,15 @@
     "name": "Large Transfer Webhook Notification",
     "trigger_type": "webhook",
     "config": {
-      "url": "https://webhook.site/123-456-789",
+      "url": {
+        "type": "plain",
+        "value": "https://webhook.site/123-456-789"
+      },
       "method": "POST",
-      "secret": "some-secret",
+      "secret": {
+        "type": "plain",
+        "value": "some-secret"
+      },
       "headers": {
         "Content-Type": "application/json"
       },
@@ -19,15 +25,21 @@
     "name": "Large Transfer Webhook Notification",
     "trigger_type": "webhook",
     "config": {
-      "url": "https://webhook.site/123-456-789",
+      "url": {
+        "type": "plain",
+        "value": "https://webhook.site/123-456-789"
+      },
       "method": "POST",
-      "secret": "some-secret",
+      "secret": {
+        "type": "plain",
+        "value": "some-secret"
+      },
       "headers": {
         "Content-Type": "application/json"
       },
       "message": {
         "title": "large_transfer_webhook triggered",
-        "body": "# USDC Transfer Alert\n\n**Large transfer detected**\n\n- **Amount:** ${event_0_value} USDC\n- **From:** `${event_0_from}`\n- **To:** `${event_0_to}`\n\n[View on Etherscan](https://etherscan.io/tx/${transaction_hash}#eventlog)"
+        "body": "# USDC Transfer Alert\n\n**Large transfer detected**\n\n- **Amount:** ${events.0.args.value} USDC\n- **From:** `${events.0.args.from}`\n- **To:** `${events.0.args.to}`\n\n[View on Etherscan](https://etherscan.io/tx/${transaction.hash}#eventlog)"
       }
     }
   },
@@ -35,9 +47,15 @@
     "name": "Large Swap By Dex Webhook Notification",
     "trigger_type": "webhook",
     "config": {
-      "url": "https://webhook.site/123-456-789",
+      "url": {
+        "type": "plain",
+        "value": "https://webhook.site/123-456-789"
+      },
       "method": "POST",
-      "secret": "some-secret",
+      "secret": {
+        "type": "plain",
+        "value": "some-secret"
+      },
       "headers": {
         "Content-Type": "application/json"
       },

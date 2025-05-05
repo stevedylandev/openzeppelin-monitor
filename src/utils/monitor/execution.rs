@@ -22,8 +22,8 @@ use tracing::{info, instrument};
 pub struct MonitorExecutionConfig<
 	T: ClientPoolTrait,
 	M: MonitorRepositoryTrait<N, TR>,
-	N: NetworkRepositoryTrait,
-	TR: TriggerRepositoryTrait + Send + Sync,
+	N: NetworkRepositoryTrait + Send + Sync + 'static,
+	TR: TriggerRepositoryTrait + Send + Sync + 'static,
 > {
 	pub path: String,
 	pub network_slug: Option<String>,
@@ -60,8 +60,8 @@ pub type ExecutionResult<T> = std::result::Result<T, MonitorExecutionError>;
 pub async fn execute_monitor<
 	T: ClientPoolTrait,
 	M: MonitorRepositoryTrait<N, TR>,
-	N: NetworkRepositoryTrait,
-	TR: TriggerRepositoryTrait + Send + Sync,
+	N: NetworkRepositoryTrait + Send + Sync + 'static,
+	TR: TriggerRepositoryTrait + Send + Sync + 'static,
 >(
 	config: MonitorExecutionConfig<T, M, N, TR>,
 ) -> ExecutionResult<String> {
@@ -71,6 +71,7 @@ pub async fn execute_monitor<
 		.lock()
 		.await
 		.load_from_path(Some(Path::new(&config.path)), None, None)
+		.await
 		.map_err(|e| MonitorExecutionError::execution_error(e.to_string(), None, None))?;
 
 	tracing::debug!(monitor_name = %monitor.name, "Monitor loaded successfully");

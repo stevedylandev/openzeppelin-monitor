@@ -503,7 +503,8 @@ async fn test_handle_match() -> Result<(), Box<FilterError>> {
 	let trigger_scripts = HashMap::new();
 
 	let mut trigger_execution_service =
-		setup_trigger_execution_service("tests/integration/fixtures/evm/triggers/trigger.json");
+		setup_trigger_execution_service("tests/integration/fixtures/evm/triggers/trigger.json")
+			.await;
 
 	// Set up expectations for execute()
 	trigger_execution_service.expect_execute()
@@ -599,7 +600,8 @@ async fn test_handle_match_with_no_args() -> Result<(), Box<FilterError>> {
 			let trigger_scripts = HashMap::new();
 			let mut trigger_execution_service = setup_trigger_execution_service(
 				"tests/integration/fixtures/evm/triggers/trigger.json",
-			);
+			)
+			.await;
 
 			// Set up expectations for execute()
 			trigger_execution_service
@@ -645,7 +647,8 @@ async fn test_handle_match_with_key_collision() -> Result<(), Box<FilterError>> 
 	let data_capture_clone = data_capture.clone();
 
 	let mut trigger_execution_service =
-		setup_trigger_execution_service("tests/integration/fixtures/evm/triggers/trigger.json");
+		setup_trigger_execution_service("tests/integration/fixtures/evm/triggers/trigger.json")
+			.await;
 
 	// Set up expectations for execute() with custom function to capture and verify data
 	trigger_execution_service
