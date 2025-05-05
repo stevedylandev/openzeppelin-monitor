@@ -2,6 +2,8 @@
 
 [![codecov](https://codecov.io/gh/OpenZeppelin/openzeppelin-monitor/branch/main/graph/badge.svg?token=VWIY5XZNDB)](https://codecov.io/gh/OpenZeppelin/openzeppelin-monitor)
 
+[![Netlify Status](https://api.netlify.com/api/v1/badges/2819f8b4-c94c-4829-a6f4-4754bfd8555b/deploy-status)](https://app.netlify.com/sites/openzeppelin-monitor/deploys)
+
 > :warning: This software is in alpha. Use in production environments at your own risk.
 
 In the rapidly evolving world of blockchain technology, effective monitoring is crucial for ensuring security and performance. OpenZeppelin Monitor is a blockchain monitoring service that watches for specific on-chain activities and triggers notifications based on configurable conditions. The service offers multi-chain support with configurable monitoring schedules, flexible trigger conditions, and an extensible architecture for adding new chains.
