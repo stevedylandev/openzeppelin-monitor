@@ -1,6 +1,6 @@
 # OpenZeppelin Monitor
 
-[![codecov](https://codecov.io/gh/OpenZeppelin/openzeppelin-monitor/branch/main/graph/badge.svg?token=VWIY5XZNDB)](https://codecov.io/gh/OpenZeppelin/openzeppelin-monitor) | [![Netlify Status](https://api.netlify.com/api/v1/badges/2819f8b4-c94c-4829-a6f4-4754bfd8555b/deploy-status)](https://app.netlify.com/sites/openzeppelin-monitor/deploys)
+[![codecov](https://codecov.io/gh/OpenZeppelin/openzeppelin-monitor/branch/main/graph/badge.svg?token=VWIY5XZNDB)](https://codecov.io/gh/OpenZeppelin/openzeppelin-monitor)  [![Netlify Status](https://api.netlify.com/api/v1/badges/2819f8b4-c94c-4829-a6f4-4754bfd8555b/deploy-status)](https://app.netlify.com/sites/openzeppelin-monitor/deploys)
 
 > :warning: This software is in alpha. Use in production environments at your own risk.
 
