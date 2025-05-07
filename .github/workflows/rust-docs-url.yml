@@ -37,7 +37,7 @@ jobs:
           echo "branch=${{ inputs.branch }}" >> $GITHUB_OUTPUT
       - name: Update the technical docs link in nav.adoc
         run: |
-          branch="${{ inputs.branch }}"
+          branch="release-v0.1.0"
           # Netlify uses `-` instead of `.` in branch names for constructing the URL
           slug="${branch//./-}"
           target="https://${slug}%2D%2Dopenzeppelin-monitor.netlify.app"
