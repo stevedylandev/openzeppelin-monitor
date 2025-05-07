@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - docs-v*
+      - add-rust-docs
   workflow_call:
     inputs:
       branch:
