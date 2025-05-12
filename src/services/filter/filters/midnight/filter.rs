@@ -11,9 +11,9 @@ use tracing::instrument;
 
 use crate::{
 	models::{
-		BlockType, EVMMatchArguments, EVMMatchParamEntry, EVMMatchParamsMap, EVMReceiptLog,
-		EVMTransaction, EVMTransactionReceipt, EventCondition, FunctionCondition, Monitor,
-		MonitorMatch, Network, TransactionCondition, TransactionStatus,
+		BlockType, ContractSpec, EVMMatchArguments, EVMMatchParamEntry, EVMMatchParamsMap,
+		EVMReceiptLog, EVMTransaction, EVMTransactionReceipt, EventCondition, FunctionCondition,
+		Monitor, MonitorMatch, Network, TransactionCondition, TransactionStatus,
 	},
 	services::{
 		blockchain::{BlockChainClient, MidnightClientTrait},
@@ -136,6 +136,7 @@ impl<T: BlockChainClient + MidnightClientTrait> BlockFilter for MidnightBlockFil
 		_network: &Network,
 		_block: &BlockType,
 		_monitors: &[Monitor],
+		_contract_specs: Option<&[(String, ContractSpec)]>,
 	) -> Result<Vec<MonitorMatch>, FilterError> {
 		Ok(vec![])
 	}
