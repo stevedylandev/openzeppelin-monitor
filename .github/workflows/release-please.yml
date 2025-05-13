@@ -2,8 +2,7 @@
 name: Run release-please
 on:
   push:
-    branches:
-      - release-v*
+    branches: [release-v*]
 permissions:
   actions: read
   contents: write
@@ -14,8 +13,7 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    environment:
-      name: release
+    environment: release
     outputs:
       release_created: ${{ steps.release.outputs.releases_created }}
       pr_created: ${{ steps.release.outputs.prs_created }}
@@ -175,8 +173,6 @@ jobs:
     with:
       tag: ${{ needs.release-please.outputs.tag }}
     secrets: inherit
-    environment:
-      name: release
 
   # Trigger workflow to publish docker images
   release-docker:
@@ -186,18 +182,12 @@ jobs:
     with:
       tag: ${{ needs.release-please.outputs.tag }}
     secrets: inherit
-    environment:
-      name: release
 
   # Trigger workflow to publish docs
   release-docs:
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
-    needs:
-      - release-please
-      - release-docker
+    needs: [release-please, release-docker]
     uses: ./.github/workflows/release-docs.yml
     with:
       tag: ${{ needs.release-please.outputs.tag }}
     secrets: inherit
-    environment:
-      name: release
