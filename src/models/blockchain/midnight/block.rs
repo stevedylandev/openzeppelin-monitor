@@ -12,30 +12,27 @@ use crate::models::MidnightRpcTransactionEnum;
 ///
 /// <https://github.com/midnightntwrk/midnight-node/blob/39dbdf54afc5f0be7e7913b387637ac52d0c50f2/pallets/midnight/rpc/src/lib.rs#L214-L218>
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct RpcBlock {
-	#[serde(rename = "header")]
-	pub header: BlockHeader,
-	#[serde(rename = "body")]
+pub struct RpcBlock<Header = BlockHeader> {
+	pub header: Header,
 	pub body: Vec<MidnightRpcTransactionEnum>,
-	#[serde(rename = "transactionsIndex")]
+	// NOTE: This should be `transactionsIndex` in the RPC response but it's not
+	// so we're using `transactions_index` here but expect this may change in the future
+	#[serde(rename = "transactions_index")]
 	pub transactions_index: Vec<(String, String)>,
 }
 /// Represents a Midnight block header
 ///
 /// Based on the response from the Midnight RPC endpoint
 /// <https://docs.midnight.network/files/Insomnia_2024-11-21.json>
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct BlockHeader {
-	#[serde(rename = "parentHash")]
 	/// Hash of the parent block
 	pub parent_hash: String, // Hash
-	#[serde(rename = "number")]
 	/// Block number
 	pub number: String, // Hex string
-	#[serde(rename = "stateRoot")]
 	/// State root hash
 	pub state_root: String, // Hash
-	#[serde(rename = "extrinsicsRoot")]
 	/// Extrinsics root hash
 	pub extrinsics_root: String, // Hash
 	/// Block digest information
@@ -43,9 +40,8 @@ pub struct BlockHeader {
 }
 
 /// Block digest containing logs
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct BlockDigest {
-	#[serde(rename = "logs")]
 	/// Vector of log entries
 	pub logs: Vec<String>, // Hex strings
 }
@@ -59,6 +55,8 @@ pub struct Block(pub RpcBlock);
 
 impl Block {
 	/// Get the block number
+	///
+	/// Returns the block number as an `Option<u64>`.
 	pub fn number(&self) -> Option<u64> {
 		Some(u64::from_str_radix(self.0.header.number.trim_start_matches("0x"), 16).unwrap_or(0))
 	}
@@ -84,7 +82,7 @@ mod tests {
 
 	#[test]
 	fn test_block_creation_and_number() {
-		let rpc_block = RpcBlock {
+		let rpc_block = RpcBlock::<BlockHeader> {
 			header: BlockHeader {
 				parent_hash: "0xabc123".to_string(),
 				number: "0x12345".to_string(),

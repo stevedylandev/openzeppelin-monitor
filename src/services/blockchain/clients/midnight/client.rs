@@ -1,46 +1,50 @@
 //! Midnight blockchain client implementation.
 //!
 //! This module provides functionality to interact with Midnight blockchain,
-//! supporting operations like block retrieval, transaction receipt lookup,
-//! and log filtering.
-
-use std::marker::PhantomData;
+//! supporting operations like block retrieval.
 
 use anyhow::Context;
 use async_trait::async_trait;
 use futures;
 use serde_json::json;
+use std::marker::PhantomData;
+use std::str::FromStr;
+use subxt::client::OnlineClient;
 use tracing::instrument;
 
 use crate::{
-	models::{BlockType, EVMBlock, EVMReceiptLog, EVMTransactionReceipt, Network},
+	models::{BlockType, MidnightBlock, MidnightEvent, Network},
 	services::{
 		blockchain::{
 			client::BlockChainClient,
 			transports::{BlockchainTransport, MidnightTransportClient},
-			BlockFilterFactory,
+			BlockFilterFactory, WsTransportClient,
 		},
-		filter::{evm_helpers::string_to_h256, MidnightBlockFilter},
+		filter::MidnightBlockFilter,
 	},
 };
 
 /// Client implementation for Midnight blockchain
 ///
-/// Provides high-level access to Midnight blockchain data and operations through HTTP transport.
+/// Provides high-level access to Midnight blockchain data and operations through HTTP and WebSocket transport.
 #[derive(Clone)]
-pub struct MidnightClient<T: Send + Sync + Clone> {
+pub struct MidnightClient<H: Send + Sync + Clone, W: Send + Sync + Clone> {
 	/// The underlying Midnight transport client for RPC communication
-	http_client: T,
+	http_client: H,
+	ws_client: Option<W>,
 }
 
-impl<T: Send + Sync + Clone> MidnightClient<T> {
-	/// Creates a new Midnight client instance with a specific transport client
-	pub fn new_with_transport(http_client: T) -> Self {
-		Self { http_client }
+impl<H: Send + Sync + Clone, W: Send + Sync + Clone> MidnightClient<H, W> {
+	/// Creates a new Midnight client instance with specific transport clients
+	pub fn new_with_transport(http_client: H, ws_client: Option<W>) -> Self {
+		Self {
+			http_client,
+			ws_client,
+		}
 	}
 }
 
-impl MidnightClient<MidnightTransportClient> {
+impl MidnightClient<MidnightTransportClient, WsTransportClient> {
 	/// Creates a new Midnight client instance
 	///
 	/// # Arguments
@@ -50,11 +54,26 @@ impl MidnightClient<MidnightTransportClient> {
 	/// * `Result<Self, anyhow::Error>` - New client instance or connection error
 	pub async fn new(network: &Network) -> Result<Self, anyhow::Error> {
 		let http_client = MidnightTransportClient::new(network).await?;
-		Ok(Self::new_with_transport(http_client))
+		let ws_client = WsTransportClient::new(network).await.map_or_else(
+			|e| {
+				// We fail to create a WebSocket client if there are no working URLs
+				// This limits the functionality of the service, by not allowing monitoring of transaction status or event-related data
+				// but it is not a critical issue
+				tracing::warn!("Failed to create WebSocket client: {}", e);
+				None
+			},
+			Some,
+		);
+		Ok(Self::new_with_transport(http_client, ws_client))
 	}
 }
 
-impl<T: Send + Sync + Clone + BlockchainTransport> BlockFilterFactory<Self> for MidnightClient<T> {
+#[async_trait]
+impl<
+		H: Send + Sync + Clone + BlockchainTransport,
+		W: Send + Sync + Clone + BlockchainTransport,
+	> BlockFilterFactory<Self> for MidnightClient<H, W>
+{
 	type Filter = MidnightBlockFilter<Self>;
 	fn filter() -> Self::Filter {
 		MidnightBlockFilter {
@@ -66,132 +85,190 @@ impl<T: Send + Sync + Clone + BlockchainTransport> BlockFilterFactory<Self> for 
 /// Extended functionality specific to Midnight blockchain
 #[async_trait]
 pub trait MidnightClientTrait {
-	/// Retrieves a transaction receipt by its hash
+	/// Retrieves events within a block range
 	///
 	/// # Arguments
-	/// * `transaction_hash` - The hash of the transaction to look up
+	/// * `start_block` - Starting block number
+	/// * `end_block` - Optional ending block number. If None, only fetches start_block
 	///
 	/// # Returns
-	/// * `Result<TransactionReceipt, anyhow::Error>` - Transaction receipt or error
-	async fn get_transaction_receipt(
+	/// * `Result<Vec<MidnightEvent>, anyhow::Error>` - Collection of events or error
+	async fn get_events(
 		&self,
-		transaction_hash: String,
-	) -> Result<EVMTransactionReceipt, anyhow::Error>;
+		start_block: u64,
+		end_block: Option<u64>,
+	) -> Result<Vec<MidnightEvent>, anyhow::Error>;
 
-	/// Retrieves logs for a range of blocks
+	/// Retrieves the chain type
 	///
-	/// # Arguments
-	/// * `from_block` - Starting block number
-	/// * `to_block` - Ending block number
+	/// This is specific for Polkadot-based chains
 	///
 	/// # Returns
-	/// * `Result<Vec<Log>, anyhow::Error>` - Collection of matching logs or error
-	async fn get_logs_for_blocks(
-		&self,
-		from_block: u64,
-		to_block: u64,
-	) -> Result<Vec<EVMReceiptLog>, anyhow::Error>;
+	/// * `Result<String, anyhow::Error>` - Chain type
+	async fn get_chain_type(&self) -> Result<String, anyhow::Error>;
 }
 
 #[async_trait]
-impl<T: Send + Sync + Clone + BlockchainTransport> MidnightClientTrait for MidnightClient<T> {
-	/// Retrieves a transaction receipt by hash with proper error handling
-	#[instrument(skip(self), fields(transaction_hash))]
-	async fn get_transaction_receipt(
+impl<
+		H: Send + Sync + Clone + BlockchainTransport,
+		W: Send + Sync + Clone + BlockchainTransport,
+	> MidnightClientTrait for MidnightClient<H, W>
+{
+	/// Retrieves events within a block range
+	/// Compactc does not support events yet
+	#[instrument(skip(self), fields(start_block, end_block))]
+	async fn get_events(
 		&self,
-		transaction_hash: String,
-	) -> Result<EVMTransactionReceipt, anyhow::Error> {
-		let hash = string_to_h256(&transaction_hash)
-			.map_err(|e| anyhow::anyhow!("Invalid transaction hash: {}", e))?;
+		start_block: u64,
+		end_block: Option<u64>,
+	) -> Result<Vec<MidnightEvent>, anyhow::Error> {
+		let websocket_client = self
+			.ws_client
+			.as_ref()
+			.ok_or_else(|| anyhow::anyhow!("WebSocket client not initialized"))?;
 
-		let params = json!([format!("0x{:x}", hash)])
-			.as_array()
-			.with_context(|| "Failed to create JSON-RPC params array")?
-			.to_vec();
+		let substrate_client = OnlineClient::<subxt::SubstrateConfig>::from_insecure_url(
+			websocket_client.get_current_url().await,
+		)
+		.await
+		.map_err(|e| anyhow::anyhow!("Failed to create subxt client: {}", e))?;
 
-		let response = self
-			.http_client
-			.send_raw_request(
-				"eth_getTransactionReceipt",
-				Some(serde_json::Value::Array(params)),
-			)
+		let end_block = end_block.unwrap_or(start_block);
+		let block_range = start_block..=end_block;
+
+		// Fetch block hashes in parallel
+		let block_hashes = futures::future::join_all(block_range.clone().map(|block_number| {
+			let client = self.http_client.clone();
+			async move {
+				let params = json!([format!("0x{:x}", block_number)]);
+				let response = client
+					.send_raw_request("chain_getBlockHash", Some(params))
+					.await
+					.with_context(|| format!("Failed to get block hash for: {}", block_number))?;
+
+				let hash_str = response
+					.get("result")
+					.and_then(|v| v.as_str())
+					.ok_or_else(|| anyhow::anyhow!("Missing 'result' field"))?;
+
+				subxt::utils::H256::from_str(hash_str)
+					.map_err(|e| anyhow::anyhow!("Failed to parse block hash: {}", e))
+			}
+		}))
+		.await
+		.into_iter()
+		.collect::<Result<Vec<_>, _>>()?;
+
+		// Fetch events for each block in parallel
+		let raw_events = futures::future::join_all(block_hashes.into_iter().map(|block_hash| {
+			let client = substrate_client.clone();
+			async move {
+				client
+					.events()
+					.at(block_hash)
+					.await
+					.map_err(|e| anyhow::anyhow!("Failed to get events: {}", e))
+			}
+		}))
+		.await
+		.into_iter()
+		.collect::<Result<Vec<_>, _>>()?;
+
+		// Decode events in parallel
+		let decoded_events =
+			futures::future::join_all(raw_events.into_iter().map(|block_events| {
+				let client = self.http_client.clone();
+				async move {
+					let event_bytes = block_events.bytes();
+					let params = json!([hex::encode(event_bytes)]);
+					let response = client
+						.send_raw_request("midnight_decodeEvents", Some(params))
+						.await?;
+
+					let response_result = response
+						.get("result")
+						.and_then(|v| v.as_array())
+						.ok_or_else(|| anyhow::anyhow!("Missing 'result' field"))?;
+
+					Ok::<Vec<MidnightEvent>, anyhow::Error>(
+						response_result
+							.iter()
+							.map(|v| MidnightEvent::from(v.clone()))
+							.collect(),
+					)
+				}
+			}))
 			.await
-			.with_context(|| format!("Failed to get transaction receipt: {}", transaction_hash))?;
+			.into_iter()
+			.collect::<Result<Vec<_>, _>>()?
+			.into_iter()
+			.flatten()
+			.collect();
 
-		// Extract the "result" field from the JSON-RPC response
-		let receipt_data = response
-			.get("result")
-			.with_context(|| "Missing 'result' field")?;
-
-		// Handle null response case
-		if receipt_data.is_null() {
-			return Err(anyhow::anyhow!("Transaction receipt not found"));
-		}
-
-		Ok(serde_json::from_value(receipt_data.clone())
-			.with_context(|| "Failed to parse transaction receipt")?)
+		Ok(decoded_events)
 	}
 
-	/// Retrieves logs within the specified block range
-	///
-	/// # Arguments
-	/// * `from_block` - Starting block number
-	/// * `to_block` - Ending block number
-	///
-	/// # Returns
-	/// * `Result<Vec<EVMReceiptLog>, anyhow::Error>` - Collection of matching logs or error
-	#[instrument(skip(self), fields(from_block, to_block))]
-	async fn get_logs_for_blocks(
-		&self,
-		from_block: u64,
-		to_block: u64,
-	) -> Result<Vec<EVMReceiptLog>, anyhow::Error> {
-		// Convert parameters to JSON-RPC format
-		let params = json!([{
-			"fromBlock": format!("0x{:x}", from_block),
-			"toBlock": format!("0x{:x}", to_block)
-		}])
-		.as_array()
-		.with_context(|| "Failed to create JSON-RPC params array")?
-		.to_vec();
-
+	/// Retrieves the chain type
+	#[instrument(skip(self))]
+	async fn get_chain_type(&self) -> Result<String, anyhow::Error> {
 		let response = self
 			.http_client
-			.send_raw_request("eth_getLogs", Some(params))
+			.send_raw_request::<serde_json::Value>("system_chain", None)
 			.await
-			.with_context(|| {
-				format!(
-					"Failed to get logs for blocks: {} - {}",
-					from_block, to_block
-				)
-			})?;
+			.with_context(|| "Failed to get chain type")?;
 
-		// Extract the "result" field from the JSON-RPC response
-		let logs_data = response
+		Ok(response
 			.get("result")
-			.with_context(|| "Missing 'result' field")?;
-
-		// Parse the response into the expected type
-		Ok(serde_json::from_value(logs_data.clone()).with_context(|| "Failed to parse logs")?)
+			.and_then(|v| v.as_str())
+			.unwrap_or_default()
+			.to_string())
 	}
 }
 
 #[async_trait]
-impl<T: Send + Sync + Clone + BlockchainTransport> BlockChainClient for MidnightClient<T> {
+impl<
+		H: Send + Sync + Clone + BlockchainTransport,
+		W: Send + Sync + Clone + BlockchainTransport,
+	> BlockChainClient for MidnightClient<H, W>
+{
 	/// Retrieves the latest block number with retry functionality
+	///
+	/// Blocks may only be finalised on a particular node, and not on others due to load-balancing.
+	/// This means it's possible for there to be multiple blocks with the same number (height).
+	/// To handle this race condition, we first get the finalized head block hash and number,
+	/// This ensures we get the correct finalized blocks even if different nodes are at different
+	/// stages of finalization.
+	///
+	/// # Returns
+	/// * `Result<u64, anyhow::Error>` - Latest block number
 	#[instrument(skip(self))]
 	async fn get_latest_block_number(&self) -> Result<u64, anyhow::Error> {
+		// Get latest finalized head hash
 		let response = self
 			.http_client
-			.send_raw_request::<serde_json::Value>("eth_blockNumber", None)
+			.send_raw_request::<serde_json::Value>("chain_getFinalisedHead", None)
 			.await
 			.with_context(|| "Failed to get latest block number")?;
 
-		// Extract the "result" field from the JSON-RPC response
-		let hex_str = response
+		let finalised_block_hash = response
 			.get("result")
 			.and_then(|v| v.as_str())
 			.ok_or_else(|| anyhow::anyhow!("Missing 'result' field"))?;
+
+		let params = json!([finalised_block_hash]);
+
+		let response = self
+			.http_client
+			.send_raw_request::<serde_json::Value>("chain_getHeader", Some(params))
+			.await
+			.with_context(|| "Failed to get latest block number")?;
+
+		// Extract the "result" field and then the "number" field from the JSON-RPC response
+		let hex_str = response
+			.get("result")
+			.and_then(|v| v.get("number"))
+			.and_then(|v| v.as_str())
+			.ok_or_else(|| anyhow::anyhow!("Missing block number in response"))?;
 
 		// Parse hex string to u64
 		u64::from_str_radix(hex_str.trim_start_matches("0x"), 16)
@@ -210,15 +287,26 @@ impl<T: Send + Sync + Clone + BlockchainTransport> BlockChainClient for Midnight
 	) -> Result<Vec<BlockType>, anyhow::Error> {
 		let block_futures: Vec<_> = (start_block..=end_block.unwrap_or(start_block))
 			.map(|block_number| {
-				let params = json!([
-					format!("0x{:x}", block_number),
-					true // include full transaction objects
-				]);
+				let params = json!([format!("0x{:x}", block_number)]);
 				let client = self.http_client.clone();
 
 				async move {
 					let response = client
-						.send_raw_request("eth_getBlockByNumber", Some(params))
+						.send_raw_request("chain_getBlockHash", Some(params))
+						.await
+						.with_context(|| {
+							format!("Failed to get block hash for: {}", block_number)
+						})?;
+
+					let block_hash = response
+						.get("result")
+						.and_then(|v| v.as_str())
+						.ok_or_else(|| anyhow::anyhow!("Missing 'result' field"))?;
+
+					let params = json!([block_hash]);
+
+					let response = client
+						.send_raw_request("midnight_jsonBlock", Some(params))
 						.await
 						.with_context(|| format!("Failed to get block: {}", block_number))?;
 
@@ -226,14 +314,22 @@ impl<T: Send + Sync + Clone + BlockchainTransport> BlockChainClient for Midnight
 						.get("result")
 						.ok_or_else(|| anyhow::anyhow!("Missing 'result' field"))?;
 
-					if block_data.is_null() {
+					// Parse the JSON string into a Value
+					let block_value: serde_json::Value = serde_json::from_str(
+						block_data
+							.as_str()
+							.ok_or_else(|| anyhow::anyhow!("Result is not a string"))?,
+					)
+					.with_context(|| "Failed to parse block JSON string")?;
+
+					if block_value.is_null() {
 						return Err(anyhow::anyhow!("Block not found"));
 					}
 
-					let block: EVMBlock = serde_json::from_value(block_data.clone())
+					let block: MidnightBlock = serde_json::from_value(block_value.clone())
 						.map_err(|e| anyhow::anyhow!("Failed to parse block: {}", e))?;
 
-					Ok(BlockType::EVM(Box::new(block)))
+					Ok(BlockType::Midnight(Box::new(block)))
 				}
 			})
 			.collect();
