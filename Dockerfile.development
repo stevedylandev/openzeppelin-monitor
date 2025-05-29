@@ -9,7 +9,7 @@ RUN apk update && apk add openssl-dev
 # Copy
 COPY . .
 
-RUN cargo fetch
+RUN cargo fetch --locked
 
 RUN cargo install --root /usr/app --path . --debug --locked --verbose
 
