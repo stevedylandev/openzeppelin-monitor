@@ -9,9 +9,7 @@ RUN apk update && apk add openssl-dev
 # Copy
 COPY . .
 
-ENV RUST_BACKTRACE=full
-
-RUN cargo install --root /usr/app --path . --debug --locked
+RUN cargo build  --locked
 
 # Wolfi image
 FROM --platform=${BUILDPLATFORM} cgr.dev/chainguard/wolfi-base:latest
