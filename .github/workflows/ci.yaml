@@ -7,10 +7,10 @@ on:
     paths-ignore: [docs/**, '**.md', .github/**, .gitignore]
   push:
     branches: [main, add-docker-readme-2]
-    paths-ignore:
-      - docs/**
-      - '**.md'
-      - .github/**
+    # paths-ignore:
+    #   - docs/**
+    #   - '**.md'
+    #   - .github/**
 # run concurrency group for the workflow
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
