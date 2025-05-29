@@ -9,6 +9,8 @@ RUN apk update && apk add openssl-dev
 # Copy
 COPY . .
 
+RUN cargo fetch
+
 RUN cargo install --root /usr/app --path . --debug --locked --verbose
 
 # Wolfi image
