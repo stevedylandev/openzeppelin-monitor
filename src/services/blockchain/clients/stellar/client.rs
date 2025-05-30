@@ -465,6 +465,11 @@ impl<T: Send + Sync + Clone + BlockchainTransport> BlockChainClient for StellarC
 			}
 		};
 
+		println!(
+			"STELLAR contract_code_xdr_base64: {:?}",
+			contract_code_xdr_base64
+		);
+
 		let wasm_code = get_wasm_code_from_ledger_entry_data(contract_code_xdr_base64)
 			.map_err(|e| anyhow::anyhow!("Failed to get wasm code: {}", e))?;
 
