@@ -1,7 +1,7 @@
 //! Midnight transport implementation for blockchain interactions.
 //!
 //! This module provides a client implementation for interacting with Midnight-compatible nodes
-//! by wrapping the HttpTransportClient. This allows for consistent behavior with other
+//! by wrapping the WsTransportClient. This allows for consistent behavior with other
 //! transport implementations while providing specific Midnight-focused functionality.
 
 use reqwest_middleware::ClientWithMiddleware;
@@ -11,36 +11,37 @@ use serde_json::Value;
 
 use crate::{
 	models::Network,
-	services::blockchain::transports::{
-		BlockchainTransport, HttpTransportClient, RotatingTransport, TransientErrorRetryStrategy,
+	services::blockchain::{
+		transports::{
+			BlockchainTransport, RotatingTransport, TransientErrorRetryStrategy, WsTransportClient,
+		},
+		WsConfig,
 	},
 };
 
-/// A client for interacting with Midnight-compatible blockchain nodes
+/// A client for interacting with Midnight-compatible blockchain nodes via WebSocket
 ///
-/// This implementation wraps the HttpTransportClient to provide consistent
+/// This implementation wraps the WsTransportClient to provide consistent
 /// behavior with other transport implementations while offering Midnight-specific
-/// functionality. It handles connection management, request retries, and
-/// endpoint rotation for Midnight-based networks.
+/// functionality. It handles WebSocket connection management, message handling,
+/// and endpoint rotation for Midnight-based networks.
 #[derive(Clone, Debug)]
 pub struct MidnightTransportClient {
-	/// The underlying HTTP transport client that handles actual RPC communications
-	http_client: HttpTransportClient,
+	/// The underlying WebSocket transport client that handles actual RPC communications
+	ws_client: WsTransportClient,
 }
 
 impl MidnightTransportClient {
-	/// Creates a new Midnight transport client by initializing an HTTP transport client
+	/// Creates a new Midnight transport client by initializing a WebSocket transport client
 	///
 	/// # Arguments
 	/// * `network` - Network configuration containing RPC URLs and other network details
 	///
 	/// # Returns
 	/// * `Result<Self, anyhow::Error>` - A new client instance or connection error
-	pub async fn new(network: &Network) -> Result<Self, anyhow::Error> {
-		let test_connection_payload =
-			Some(r#"{"id":1,"jsonrpc":"2.0","method":"system_chain","params":[]}"#.to_string());
-		let http_client = HttpTransportClient::new(network, test_connection_payload).await?;
-		Ok(Self { http_client })
+	pub async fn new(network: &Network, config: Option<WsConfig>) -> Result<Self, anyhow::Error> {
+		let ws_client = WsTransportClient::new(network, config).await?;
+		Ok(Self { ws_client })
 	}
 }
 
@@ -51,10 +52,10 @@ impl BlockchainTransport for MidnightTransportClient {
 	/// # Returns
 	/// * `String` - The currently active RPC endpoint URL
 	async fn get_current_url(&self) -> String {
-		self.http_client.get_current_url().await
+		self.ws_client.get_current_url().await
 	}
 
-	/// Sends a raw JSON-RPC request to the Midnight node
+	/// Sends a raw JSON-RPC request to the Midnight node via WebSocket
 	///
 	/// # Arguments
 	/// * `method` - The JSON-RPC method to call
@@ -70,60 +71,56 @@ impl BlockchainTransport for MidnightTransportClient {
 	where
 		P: Into<Value> + Send + Clone + Serialize,
 	{
-		self.http_client.send_raw_request(method, params).await
+		self.ws_client.send_raw_request(method, params).await
 	}
 
 	/// Sets a new retry policy for the transport
 	///
-	/// # Arguments
-	/// * `retry_policy` - The new retry policy to use
-	/// * `retry_strategy` - The new retry strategy to use
-	///
-	/// # Returns
-	/// * `Result<(), anyhow::Error>` - Success or error status
+	/// Note: Not applicable for WebSocket transport
 	fn set_retry_policy(
 		&mut self,
-		retry_policy: ExponentialBackoff,
-		retry_strategy: Option<TransientErrorRetryStrategy>,
+		_retry_policy: ExponentialBackoff,
+		_retry_strategy: Option<TransientErrorRetryStrategy>,
 	) -> Result<(), anyhow::Error> {
-		self.http_client
-			.set_retry_policy(retry_policy, retry_strategy)?;
-		Ok(())
+		Err(anyhow::anyhow!(
+			"`set_retry_policy` not implemented for WebSocket transport"
+		))
 	}
 
 	/// Update endpoint manager with a new client
 	///
-	/// # Arguments
-	/// * `client` - The new client to use for the endpoint manager
+	/// Note: Not applicable for WebSocket transport
 	fn update_endpoint_manager_client(
 		&mut self,
-		client: ClientWithMiddleware,
+		_client: ClientWithMiddleware,
 	) -> Result<(), anyhow::Error> {
-		self.http_client.update_endpoint_manager_client(client)
+		Err(anyhow::anyhow!(
+			"`update_endpoint_manager_client` not implemented for WebSocket transport"
+		))
 	}
 }
 
 #[async_trait::async_trait]
 impl RotatingTransport for MidnightTransportClient {
-	/// Tests connection to a specific URL
+	/// Tests connection to a specific WebSocket URL
 	///
 	/// # Arguments
-	/// * `url` - The URL to test connection with
+	/// * `url` - The WebSocket URL to test connection with
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error status
 	async fn try_connect(&self, url: &str) -> Result<(), anyhow::Error> {
-		self.http_client.try_connect(url).await
+		self.ws_client.try_connect(url).await
 	}
 
-	/// Updates the client to use a new URL
+	/// Updates the client to use a new WebSocket URL
 	///
 	/// # Arguments
-	/// * `url` - The new URL to use for subsequent requests
+	/// * `url` - The new WebSocket URL to use for subsequent requests
 	///
 	/// # Returns
 	/// * `Result<(), anyhow::Error>` - Success or error status
 	async fn update_client(&self, url: &str) -> Result<(), anyhow::Error> {
-		self.http_client.update_client(url).await
+		self.ws_client.update_client(url).await
 	}
 }
