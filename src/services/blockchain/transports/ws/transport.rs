@@ -15,11 +15,15 @@ use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, Web
 
 use crate::{
 	models::Network,
-	services::blockchain::transports::{
-		ws::{
-			config::WsConfig, connection::WebSocketConnection, endpoint_manager::EndpointManager,
+	services::blockchain::{
+		transports::{
+			ws::{
+				config::WsConfig, connection::WebSocketConnection,
+				endpoint_manager::EndpointManager,
+			},
+			BlockchainTransport, RotatingTransport, TransientErrorRetryStrategy,
 		},
-		BlockchainTransport, RotatingTransport, TransientErrorRetryStrategy,
+		TransportError,
 	},
 };
 
@@ -136,19 +140,19 @@ impl WsTransportClient {
 	/// * `params` - Optional parameters for the method call
 	///
 	/// # Returns
-	/// * `Result<Value, anyhow::Error>` - JSON response or error
+	/// * `Result<Value, TransportError>` - JSON response or error
 	async fn send_raw_request<P>(
 		&self,
 		method: &str,
 		params: Option<P>,
-	) -> Result<Value, anyhow::Error>
+	) -> Result<Value, TransportError>
 	where
 		P: Into<Value> + Send + Clone + Serialize,
 	{
 		loop {
 			let mut connection = self.connection.lock().await;
 			if !connection.is_connected() {
-				return Err(anyhow::anyhow!("Not connected"));
+				return Err(TransportError::network("Not connected", None, None));
 			}
 			connection.update_activity();
 
@@ -164,9 +168,11 @@ impl WsTransportClient {
 					handle_connection_error(&mut connection);
 					drop(connection);
 					if !self.endpoint_manager.should_rotate().await {
-						return Err(anyhow::anyhow!("Not connected"));
+						return Err(TransportError::network("Not connected", None, None));
 					}
-					self.endpoint_manager.rotate_url(self).await?;
+					self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+						TransportError::url_rotation("Failed to rotate URL", Some(e.into()), None)
+					})?;
 					continue;
 				}
 			};
@@ -181,9 +187,15 @@ impl WsTransportClient {
 				handle_connection_error(&mut connection);
 				drop(connection);
 				if !self.endpoint_manager.should_rotate().await {
-					return Err(anyhow::anyhow!("Failed to send request: {}", e));
+					return Err(TransportError::network(
+						format!("Failed to send request: {}", e),
+						None,
+						None,
+					));
 				}
-				self.endpoint_manager.rotate_url(self).await?;
+				self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+					TransportError::url_rotation("Failed to rotate URL", Some(e.into()), None)
+				})?;
 				continue;
 			}
 
@@ -213,7 +225,13 @@ impl WsTransportClient {
 			// Wait for response with timeout
 			match wait_for_response(stream, self.config.message_timeout).await {
 				Ok(Message::Text(text)) => {
-					return Ok(serde_json::from_str(&text)?);
+					return serde_json::from_str(&text).map_err(|e| {
+						TransportError::response_parse(
+							"Failed to parse response",
+							Some(e.into()),
+							None,
+						)
+					});
 				}
 				Ok(Message::Ping(data)) => {
 					// Respond to ping and wait for actual response
@@ -221,16 +239,32 @@ impl WsTransportClient {
 						handle_connection_error(&mut connection);
 						drop(connection);
 						if !self.endpoint_manager.should_rotate().await {
-							return Err(e);
+							return Err(TransportError::network(
+								"Failed to send pong",
+								Some(e.into()),
+								None,
+							));
 						}
-						self.endpoint_manager.rotate_url(self).await?;
+						self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+							TransportError::url_rotation(
+								"Failed to rotate URL",
+								Some(e.into()),
+								None,
+							)
+						})?;
 						continue;
 					}
 
 					// Keep connection lock and wait for actual response
 					match wait_for_response(stream, self.config.message_timeout).await {
 						Ok(Message::Text(text)) => {
-							return Ok(serde_json::from_str(&text)?);
+							return serde_json::from_str(&text).map_err(|e| {
+								TransportError::response_parse(
+									"Failed to parse response",
+									Some(e.into()),
+									None,
+								)
+							});
 						}
 						Ok(Message::Ping(data)) => {
 							// Handle nested ping
@@ -238,9 +272,19 @@ impl WsTransportClient {
 								handle_connection_error(&mut connection);
 								drop(connection);
 								if !self.endpoint_manager.should_rotate().await {
-									return Err(e);
+									return Err(TransportError::network(
+										"Failed to send pong",
+										Some(e.into()),
+										None,
+									));
 								}
-								self.endpoint_manager.rotate_url(self).await?;
+								self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+									TransportError::url_rotation(
+										"Failed to rotate URL",
+										Some(e.into()),
+										None,
+									)
+								})?;
 								continue;
 							}
 							drop(connection);
@@ -250,18 +294,38 @@ impl WsTransportClient {
 							handle_connection_error(&mut connection);
 							drop(connection);
 							if !self.endpoint_manager.should_rotate().await {
-								return Err(anyhow::anyhow!("Unexpected message type"));
+								return Err(TransportError::network(
+									"Unexpected message type",
+									None,
+									None,
+								));
 							}
-							self.endpoint_manager.rotate_url(self).await?;
+							self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+								TransportError::url_rotation(
+									"Failed to rotate URL",
+									Some(e.into()),
+									None,
+								)
+							})?;
 							continue;
 						}
 						Err(e) => {
 							handle_connection_error(&mut connection);
 							drop(connection);
 							if !self.endpoint_manager.should_rotate().await {
-								return Err(e);
+								return Err(TransportError::network(
+									"Failed to handle response",
+									Some(e.into()),
+									None,
+								));
 							}
-							self.endpoint_manager.rotate_url(self).await?;
+							self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+								TransportError::url_rotation(
+									"Failed to rotate URL",
+									Some(e.into()),
+									None,
+								)
+							})?;
 							continue;
 						}
 					}
@@ -270,18 +334,30 @@ impl WsTransportClient {
 					handle_connection_error(&mut connection);
 					drop(connection);
 					if !self.endpoint_manager.should_rotate().await {
-						return Err(anyhow::anyhow!("Unexpected message type"));
+						return Err(TransportError::network(
+							"Unexpected message type",
+							None,
+							None,
+						));
 					}
-					self.endpoint_manager.rotate_url(self).await?;
+					self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+						TransportError::url_rotation("Failed to rotate URL", Some(e.into()), None)
+					})?;
 					continue;
 				}
 				Err(e) => {
 					handle_connection_error(&mut connection);
 					drop(connection);
 					if !self.endpoint_manager.should_rotate().await {
-						return Err(e);
+						return Err(TransportError::network(
+							"Failed to handle response",
+							Some(e.into()),
+							None,
+						));
 					}
-					self.endpoint_manager.rotate_url(self).await?;
+					self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+						TransportError::url_rotation("Failed to rotate URL", Some(e.into()), None)
+					})?;
 					continue;
 				}
 			}
@@ -323,7 +399,7 @@ impl BlockchainTransport for WsTransportClient {
 		&self,
 		method: &str,
 		params: Option<P>,
-	) -> Result<Value, anyhow::Error>
+	) -> Result<Value, TransportError>
 	where
 		P: Into<Value> + Send + Clone + Serialize,
 	{

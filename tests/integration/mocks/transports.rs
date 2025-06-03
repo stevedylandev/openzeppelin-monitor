@@ -9,7 +9,7 @@ use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
 use openzeppelin_monitor::services::blockchain::{
-	BlockchainTransport, RotatingTransport, TransientErrorRetryStrategy,
+	BlockchainTransport, RotatingTransport, TransientErrorRetryStrategy, TransportError,
 };
 
 // Mock implementation of a EVM transport client.
@@ -17,7 +17,7 @@ use openzeppelin_monitor::services::blockchain::{
 // Provides functionality to simulate raw JSON-RPC request handling.
 mock! {
 	pub EVMTransportClient {
-		pub async fn send_raw_request(&self, method: &str, params: Option<Vec<Value>>) -> Result<Value, anyhow::Error>;
+		pub async fn send_raw_request(&self, method: &str, params: Option<Vec<Value>>) -> Result<Value, TransportError>;
 		pub async fn get_current_url(&self) -> String;
 	}
 
@@ -36,7 +36,7 @@ impl BlockchainTransport for MockEVMTransportClient {
 		&self,
 		method: &str,
 		params: Option<P>,
-	) -> Result<Value, anyhow::Error>
+	) -> Result<Value, TransportError>
 	where
 		P: Into<Value> + Send + Clone,
 	{
@@ -77,7 +77,7 @@ impl RotatingTransport for MockEVMTransportClient {
 // Provides functionality to simulate raw JSON-RPC request handling.
 mock! {
 	pub StellarTransportClient {
-		pub async fn send_raw_request(&self, method: &str, params: Option<Value>) -> Result<Value, anyhow::Error>;
+		pub async fn send_raw_request(&self, method: &str, params: Option<Value>) -> Result<Value, TransportError>;
 		pub async fn get_current_url(&self) -> String;
 	}
 
@@ -96,7 +96,7 @@ impl BlockchainTransport for MockStellarTransportClient {
 		&self,
 		method: &str,
 		params: Option<P>,
-	) -> Result<Value, anyhow::Error>
+	) -> Result<Value, TransportError>
 	where
 		P: Into<Value> + Send + Clone,
 	{
@@ -135,7 +135,7 @@ impl RotatingTransport for MockStellarTransportClient {
 // Used for testing WebSocket connections.
 mock! {
 	pub MidnightWsTransportClient {
-		pub async fn send_raw_request(&self, method: &str, params: Option<Vec<Value>>) -> Result<Value, anyhow::Error>;
+		pub async fn send_raw_request(&self, method: &str, params: Option<Vec<Value>>) -> Result<Value, TransportError>;
 		pub async fn get_current_url(&self) -> String;
 		pub async fn try_connect(&self, url: &str) -> Result<(), anyhow::Error>;
 		pub async fn update_client(&self, url: &str) -> Result<(), anyhow::Error>;
@@ -156,7 +156,7 @@ impl BlockchainTransport for MockMidnightWsTransportClient {
 		&self,
 		method: &str,
 		params: Option<P>,
-	) -> Result<Value, anyhow::Error>
+	) -> Result<Value, TransportError>
 	where
 		P: Into<Value> + Send + Clone,
 	{

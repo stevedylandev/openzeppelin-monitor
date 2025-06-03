@@ -4,7 +4,7 @@ use crate::integration::mocks::{
 use mockall::predicate;
 use openzeppelin_monitor::{
 	models::{BlockType, MidnightEventType},
-	services::blockchain::{BlockChainClient, MidnightClient, MidnightClientTrait},
+	services::blockchain::{BlockChainClient, MidnightClient, MidnightClientTrait, TransportError},
 	utils::tests::midnight::{block::BlockBuilder, event::EventBuilder},
 };
 use serde_json::json;
@@ -97,7 +97,7 @@ async fn test_get_chain_type_error_cases() {
 	mock_midnight
 		.expect_send_raw_request()
 		.with(predicate::eq("system_chain"), predicate::always())
-		.returning(|_, _| Err(anyhow::anyhow!("Failed to connect")));
+		.returning(|_, _| Err(TransportError::network("Failed to connect", None, None)));
 
 	let client =
 		MidnightClient::<MockMidnightWsTransportClient, MockSubstrateClient>::new_with_transport(

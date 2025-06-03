@@ -15,7 +15,7 @@ use crate::{
 		transports::{
 			BlockchainTransport, RotatingTransport, TransientErrorRetryStrategy, WsTransportClient,
 		},
-		WsConfig,
+		TransportError, WsConfig,
 	},
 };
 
@@ -67,7 +67,7 @@ impl BlockchainTransport for MidnightTransportClient {
 		&self,
 		method: &str,
 		params: Option<P>,
-	) -> Result<Value, anyhow::Error>
+	) -> Result<Value, TransportError>
 	where
 		P: Into<Value> + Send + Clone + Serialize,
 	{

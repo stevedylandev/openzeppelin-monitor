@@ -242,7 +242,10 @@ async fn test_ws_transport_timeout() {
 	let result = client.send_raw_request("timeout_test", None::<Value>).await;
 	assert!(result.is_err(), "Should timeout on hanging request");
 	assert!(
-		result.unwrap_err().to_string().contains("Response timeout"),
+		result
+			.unwrap_err()
+			.to_string()
+			.contains("Failed to handle response"),
 		"Should indicate response timeout"
 	);
 
@@ -340,7 +343,10 @@ async fn test_websocket_connection_health() {
 	let result = client.send_raw_request("timeout_test", None::<Value>).await;
 	assert!(result.is_err(), "Should timeout on hanging request");
 	assert!(
-		result.unwrap_err().to_string().contains("Response timeout"),
+		result
+			.unwrap_err()
+			.to_string()
+			.contains("Failed to handle response"),
 		"Should indicate response timeout"
 	);
 

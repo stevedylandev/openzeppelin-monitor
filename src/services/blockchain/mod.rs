@@ -25,5 +25,5 @@ pub use pool::{ClientPool, ClientPoolTrait};
 pub use transports::{
 	BlockchainTransport, EVMTransportClient, HttpEndpointManager, HttpTransportClient,
 	MidnightWsTransportClient, RotatingTransport, StellarTransportClient,
-	TransientErrorRetryStrategy, WsConfig, WsEndpointManager, WsTransportClient,
+	TransientErrorRetryStrategy, TransportError, WsConfig, WsEndpointManager, WsTransportClient,
 };

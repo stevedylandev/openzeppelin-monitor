@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 
 use openzeppelin_monitor::{
 	models::MidnightEventType,
-	services::blockchain::{BlockChainClient, MidnightClient, MidnightClientTrait},
+	services::blockchain::{BlockChainClient, MidnightClient, MidnightClientTrait, TransportError},
 	utils::tests::midnight::event::EventBuilder,
 };
 
@@ -615,7 +615,13 @@ async fn test_get_events_failed_block_hash() {
 		new_mock
 			.expect_send_raw_request()
 			.with(predicate::eq("chain_getBlockHash"), predicate::always())
-			.returning(move |_, _| Err(anyhow::anyhow!("Failed to get block hash")));
+			.returning(move |_, _| {
+				Err(TransportError::network(
+					"Failed to get block hash",
+					None,
+					None,
+				))
+			});
 		new_mock
 	});
 
@@ -923,7 +929,7 @@ async fn test_chain_type_scenarios() {
 	mock_midnight
 		.expect_send_raw_request()
 		.with(predicate::eq("system_chain"), predicate::always())
-		.returning(|_, _| Err(anyhow::anyhow!("Network error")));
+		.returning(|_, _| Err(TransportError::network("Network error", None, None)));
 
 	let client =
 		MidnightClient::<MockMidnightWsTransportClient, MockSubstrateClient>::new_with_transport(

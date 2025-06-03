@@ -26,6 +26,8 @@ mod ws {
 	pub mod transport;
 }
 
+mod error;
+
 pub use http::{
 	endpoint_manager::EndpointManager as HttpEndpointManager, transport::HttpTransportClient,
 };
@@ -34,6 +36,7 @@ pub use ws::{
 	transport::WsTransportClient,
 };
 
+pub use error::TransportError;
 pub use evm::http::EVMTransportClient;
 pub use midnight::ws::MidnightTransportClient as MidnightWsTransportClient;
 pub use stellar::http::StellarTransportClient;
@@ -61,7 +64,7 @@ pub trait BlockchainTransport: Send + Sync {
 		&self,
 		method: &str,
 		params: Option<P>,
-	) -> Result<Value, anyhow::Error>
+	) -> Result<Value, TransportError>
 	where
 		P: Into<Value> + Send + Clone + Serialize;
 

@@ -22,7 +22,7 @@ use crate::{
 	models::Network,
 	services::blockchain::transports::{
 		http::endpoint_manager::EndpointManager, BlockchainTransport, RotatingTransport,
-		TransientErrorRetryStrategy,
+		TransientErrorRetryStrategy, TransportError,
 	},
 };
 
@@ -179,7 +179,7 @@ impl BlockchainTransport for HttpTransportClient {
 	/// * `params` - Optional parameters for the method call
 	///
 	/// # Returns
-	/// * `Result<Value, anyhow::Error>` - JSON response or error with context
+	/// * `Result<Value, TransportError>` - JSON response or error with context
 	///
 	/// # Type Parameters
 	/// * `P` - Parameter type that can be serialized to JSON
@@ -187,7 +187,7 @@ impl BlockchainTransport for HttpTransportClient {
 		&self,
 		method: &str,
 		params: Option<P>,
-	) -> Result<Value, anyhow::Error>
+	) -> Result<Value, TransportError>
 	where
 		P: Into<Value> + Send + Clone + Serialize,
 	{
