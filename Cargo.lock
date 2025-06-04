@@ -5808,6 +5808,7 @@ dependencies = [
  "reqwest 0.12.15",
  "reqwest-middleware",
  "reqwest-retry",
+ "rust_decimal",
  "scale-decode",
  "scale-encode",
  "scale-info",
@@ -5833,6 +5834,7 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid 1.17.0",
+ "winnow 0.7.10",
  "zeroize",
 ]
 
