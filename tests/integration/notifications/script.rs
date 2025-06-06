@@ -1,6 +1,6 @@
 use openzeppelin_monitor::{
 	models::{EVMMonitorMatch, MatchConditions, Monitor, MonitorMatch, ScriptLanguage},
-	services::notification::NotificationService,
+	services::notification::{NotificationError, NotificationService},
 	utils::tests::{
 		evm::{monitor::MonitorBuilder, transaction::TransactionBuilder},
 		trigger::TriggerBuilder,
@@ -62,7 +62,7 @@ async fn test_notification_service_script_execution() {
 
 	// Execute the notification
 	let result = notification_service
-		.execute(&trigger, HashMap::new(), &monitor_match, &trigger_scripts)
+		.execute(&trigger, &HashMap::new(), &monitor_match, &trigger_scripts)
 		.await;
 	assert!(result.is_ok());
 }
@@ -83,14 +83,20 @@ async fn test_notification_service_script_execution_failure() {
 	let trigger_scripts = create_test_trigger_scripts(None);
 
 	let result = notification_service
-		.execute(&trigger, HashMap::new(), &monitor_match, &trigger_scripts)
+		.execute(&trigger, &HashMap::new(), &monitor_match, &trigger_scripts)
 		.await;
 
 	assert!(result.is_err());
-	assert!(result
-		.unwrap_err()
-		.to_string()
-		.contains("Script content not found"));
+
+	let error = result.unwrap_err();
+
+	println!("Error: {:?}", error);
+
+	if let NotificationError::ConfigError(ctx) = error {
+		assert!(ctx.to_string().contains("Script content not found"));
+	} else {
+		panic!("Expected NotificationError::ConfigError variant");
+	}
 }
 
 #[tokio::test]
@@ -111,7 +117,7 @@ async fn test_notification_service_script_execution_normalized_monitor_name() {
 
 	// Execute the notification
 	let result = notification_service
-		.execute(&trigger, HashMap::new(), &monitor_match, &trigger_scripts)
+		.execute(&trigger, &HashMap::new(), &monitor_match, &trigger_scripts)
 		.await;
 	assert!(result.is_ok());
 }
