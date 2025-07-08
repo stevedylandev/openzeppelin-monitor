@@ -1,7 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use mockall::mock;
 use reqwest_middleware::ClientWithMiddleware;
-use reqwest_retry::policies::ExponentialBackoff;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Arc};
