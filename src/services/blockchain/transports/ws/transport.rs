@@ -7,8 +7,12 @@ use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use reqwest_middleware::ClientWithMiddleware;
 use serde::Serialize;
-use serde_json::Value;
-use std::{sync::Arc, time::Duration};
+use serde_json::{json, Value};
+use std::{
+	sync::atomic::{AtomicU64, Ordering},
+	sync::Arc,
+	time::Duration,
+};
 use tokio::{net::TcpStream, sync::Mutex, time::timeout};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
@@ -44,6 +48,8 @@ pub struct WsTransportClient {
 	endpoint_manager: Arc<EndpointManager>,
 	/// Configuration settings for WebSocket connections
 	config: WsConfig,
+	/// Counter for generating unique request IDs
+	request_id_counter: Arc<AtomicU64>,
 }
 
 impl WsTransportClient {
@@ -108,6 +114,7 @@ impl WsTransportClient {
 			connection,
 			endpoint_manager,
 			config,
+			request_id_counter: Arc::new(AtomicU64::new(1)),
 		};
 
 		// Initial connection
@@ -176,7 +183,14 @@ impl WsTransportClient {
 				}
 			};
 
-			let request_body = self.customize_request(method, params.clone()).await;
+			// Generate unique request ID
+			let request_id = self.request_id_counter.fetch_add(1, Ordering::SeqCst);
+			let request_body = json!({
+				"jsonrpc": "2.0",
+				"id": request_id,
+				"method": method,
+				"params": params.clone().map(|p| p.into())
+			});
 
 			// Try to send the request
 			if let Err(e) = stream
@@ -221,25 +235,79 @@ impl WsTransportClient {
 					.map_err(|e| anyhow::anyhow!("WebSocket error: {}", e))
 			}
 
-			// Wait for response with timeout
-			match wait_for_response(stream, self.config.message_timeout).await {
-				Ok(Message::Text(text)) => {
-					return serde_json::from_str(&text).map_err(|e| {
-						TransportError::response_parse(
-							"Failed to parse response",
-							Some(e.into()),
-							None,
-						)
-					});
-				}
-				Ok(Message::Ping(data)) => {
-					// Respond to ping and wait for actual response
-					if let Err(e) = handle_ping(stream, data.to_vec()).await {
+			// Wait for response with timeout, retrying until we get our specific response ID
+			loop {
+				match wait_for_response(stream, self.config.message_timeout).await {
+					Ok(Message::Text(text)) => {
+						// Parse the response
+						let response: Value = serde_json::from_str(&text).map_err(|e| {
+							TransportError::response_parse(
+								"Failed to parse response",
+								Some(e.into()),
+								None,
+							)
+						})?;
+
+						// Check if this response is for our request
+						if let Some(response_id) = response.get("id").and_then(|v| v.as_u64()) {
+							if response_id == request_id {
+								// This is our response!
+								return Ok(response);
+							}
+							// Not our response, continue waiting
+							continue;
+						}
+
+						// No ID in response
+						return Ok(response);
+					}
+					Ok(Message::Ping(data)) => {
+						// Respond to ping and wait for actual response
+						if let Err(e) = handle_ping(stream, data.to_vec()).await {
+							handle_connection_error(&mut connection);
+							drop(connection);
+							if !self.endpoint_manager.should_rotate().await {
+								return Err(TransportError::network(
+									"Failed to send pong",
+									Some(e.into()),
+									None,
+								));
+							}
+							self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+								TransportError::url_rotation(
+									"Failed to rotate URL",
+									Some(e.into()),
+									None,
+								)
+							})?;
+							break;
+						}
+					}
+					Ok(_) => {
 						handle_connection_error(&mut connection);
 						drop(connection);
 						if !self.endpoint_manager.should_rotate().await {
 							return Err(TransportError::network(
-								"Failed to send pong",
+								"Unexpected message type",
+								None,
+								None,
+							));
+						}
+						self.endpoint_manager.rotate_url(self).await.map_err(|e| {
+							TransportError::url_rotation(
+								"Failed to rotate URL",
+								Some(e.into()),
+								None,
+							)
+						})?;
+						break;
+					}
+					Err(e) => {
+						handle_connection_error(&mut connection);
+						drop(connection);
+						if !self.endpoint_manager.should_rotate().await {
+							return Err(TransportError::network(
+								"Failed to handle response",
 								Some(e.into()),
 								None,
 							));
@@ -251,113 +319,8 @@ impl WsTransportClient {
 								None,
 							)
 						})?;
-						continue;
+						break;
 					}
-
-					// Keep connection lock and wait for actual response
-					match wait_for_response(stream, self.config.message_timeout).await {
-						Ok(Message::Text(text)) => {
-							return serde_json::from_str(&text).map_err(|e| {
-								TransportError::response_parse(
-									"Failed to parse response",
-									Some(e.into()),
-									None,
-								)
-							});
-						}
-						Ok(Message::Ping(data)) => {
-							// Handle nested ping
-							if let Err(e) = handle_ping(stream, data.to_vec()).await {
-								handle_connection_error(&mut connection);
-								drop(connection);
-								if !self.endpoint_manager.should_rotate().await {
-									return Err(TransportError::network(
-										"Failed to send pong",
-										Some(e.into()),
-										None,
-									));
-								}
-								self.endpoint_manager.rotate_url(self).await.map_err(|e| {
-									TransportError::url_rotation(
-										"Failed to rotate URL",
-										Some(e.into()),
-										None,
-									)
-								})?;
-								continue;
-							}
-							drop(connection);
-							continue;
-						}
-						Ok(_) => {
-							handle_connection_error(&mut connection);
-							drop(connection);
-							if !self.endpoint_manager.should_rotate().await {
-								return Err(TransportError::network(
-									"Unexpected message type",
-									None,
-									None,
-								));
-							}
-							self.endpoint_manager.rotate_url(self).await.map_err(|e| {
-								TransportError::url_rotation(
-									"Failed to rotate URL",
-									Some(e.into()),
-									None,
-								)
-							})?;
-							continue;
-						}
-						Err(e) => {
-							handle_connection_error(&mut connection);
-							drop(connection);
-							if !self.endpoint_manager.should_rotate().await {
-								return Err(TransportError::network(
-									"Failed to handle response",
-									Some(e.into()),
-									None,
-								));
-							}
-							self.endpoint_manager.rotate_url(self).await.map_err(|e| {
-								TransportError::url_rotation(
-									"Failed to rotate URL",
-									Some(e.into()),
-									None,
-								)
-							})?;
-							continue;
-						}
-					}
-				}
-				Ok(_) => {
-					handle_connection_error(&mut connection);
-					drop(connection);
-					if !self.endpoint_manager.should_rotate().await {
-						return Err(TransportError::network(
-							"Unexpected message type",
-							None,
-							None,
-						));
-					}
-					self.endpoint_manager.rotate_url(self).await.map_err(|e| {
-						TransportError::url_rotation("Failed to rotate URL", Some(e.into()), None)
-					})?;
-					continue;
-				}
-				Err(e) => {
-					handle_connection_error(&mut connection);
-					drop(connection);
-					if !self.endpoint_manager.should_rotate().await {
-						return Err(TransportError::network(
-							"Failed to handle response",
-							Some(e.into()),
-							None,
-						));
-					}
-					self.endpoint_manager.rotate_url(self).await.map_err(|e| {
-						TransportError::url_rotation("Failed to rotate URL", Some(e.into()), None)
-					})?;
-					continue;
 				}
 			}
 		}
