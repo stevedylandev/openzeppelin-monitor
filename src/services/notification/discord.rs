@@ -4,9 +4,10 @@
 //! via incoming webhooks, supporting message templates with variable substitution.
 
 use async_trait::async_trait;
+use reqwest_middleware::ClientWithMiddleware;
 use serde::Serialize;
 use serde_json;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
 	models::TriggerTypeConfig,
@@ -14,6 +15,7 @@ use crate::{
 };
 
 /// Implementation of Discord notifications via webhooks
+#[derive(Debug)]
 pub struct DiscordNotifier {
 	inner: WebhookNotifier,
 }
@@ -76,22 +78,26 @@ impl DiscordNotifier {
 	/// * `url` - Discord webhook URL
 	/// * `title` - Message title
 	/// * `body_template` - Message template with variables
+	/// * `http_client` - HTTP client with middleware for retries
 	pub fn new(
 		url: String,
 		title: String,
 		body_template: String,
-	) -> Result<Self, Box<NotificationError>> {
+		http_client: Arc<ClientWithMiddleware>,
+	) -> Result<Self, NotificationError> {
+		let config = WebhookConfig {
+			url,
+			url_params: None,
+			title,
+			body_template,
+			method: Some("POST".to_string()),
+			secret: None,
+			headers: None,
+			payload_fields: None,
+		};
+
 		Ok(Self {
-			inner: WebhookNotifier::new(WebhookConfig {
-				url,
-				url_params: None,
-				title,
-				body_template,
-				method: Some("POST".to_string()),
-				secret: None,
-				headers: None,
-				payload_fields: None,
-			})?,
+			inner: WebhookNotifier::new(config, http_client)?,
 		})
 	}
 
@@ -111,15 +117,21 @@ impl DiscordNotifier {
 	///
 	/// # Arguments
 	/// * `config` - Trigger configuration containing Discord parameters
+	/// * `http_client` - HTTP client with middleware for retries
 	///
 	/// # Returns
-	/// * `Option<Self>` - Notifier instance if config is Discord type
-	pub fn from_config(config: &TriggerTypeConfig) -> Option<Self> {
-		match config {
-			TriggerTypeConfig::Discord {
-				discord_url,
-				message,
-			} => WebhookNotifier::new(WebhookConfig {
+	/// * `Result<Self, NotificationError>` - Notifier instance if config is Discord type
+	pub fn from_config(
+		config: &TriggerTypeConfig,
+		http_client: Arc<ClientWithMiddleware>,
+	) -> Result<Self, NotificationError> {
+		if let TriggerTypeConfig::Discord {
+			discord_url,
+			message,
+			..
+		} = config
+		{
+			let webhook_config = WebhookConfig {
 				url: discord_url.as_ref().to_string(),
 				url_params: None,
 				title: message.title.clone(),
@@ -128,10 +140,14 @@ impl DiscordNotifier {
 				secret: None,
 				headers: None,
 				payload_fields: None,
+			};
+
+			Ok(Self {
+				inner: WebhookNotifier::new(webhook_config, http_client)?,
 			})
-			.ok()
-			.map(|inner| Self { inner }),
-			_ => None,
+		} else {
+			let msg = format!("Invalid discord configuration: {:?}", config);
+			Err(NotificationError::config_error(msg, None, None))
 		}
 	}
 }
@@ -144,8 +160,8 @@ impl Notifier for DiscordNotifier {
 	/// * `message` - The formatted message to send
 	///
 	/// # Returns
-	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
+	/// * `Result<(), NotificationError>` - Success or error
+	async fn notify(&self, message: &str) -> Result<(), NotificationError> {
 		let mut payload_fields = HashMap::new();
 		let discord_message = DiscordMessage {
 			content: message.to_string(),
@@ -167,7 +183,10 @@ impl Notifier for DiscordNotifier {
 
 #[cfg(test)]
 mod tests {
-	use crate::models::{NotificationMessage, SecretString, SecretValue};
+	use crate::{
+		models::{NotificationMessage, SecretString, SecretValue},
+		utils::{tests::create_test_http_client, HttpRetryConfig},
+	};
 
 	use super::*;
 
@@ -176,6 +195,7 @@ mod tests {
 			"https://non-existent-url-discord-webhook.com".to_string(),
 			"Alert".to_string(),
 			body_template.to_string(),
+			create_test_http_client(),
 		)
 		.unwrap()
 	}
@@ -189,6 +209,7 @@ mod tests {
 				title: "Test Alert".to_string(),
 				body: "Test message ${value}".to_string(),
 			},
+			retry_policy: HttpRetryConfig::default(),
 		}
 	}
 
@@ -236,9 +257,9 @@ mod tests {
 	#[test]
 	fn test_from_config_with_discord_config() {
 		let config = create_test_discord_config();
-
-		let notifier = DiscordNotifier::from_config(&config);
-		assert!(notifier.is_some());
+		let http_client = create_test_http_client();
+		let notifier = DiscordNotifier::from_config(&config, http_client);
+		assert!(notifier.is_ok());
 
 		let notifier = notifier.unwrap();
 		assert_eq!(notifier.inner.url, "https://discord.example.com");
@@ -255,6 +276,9 @@ mod tests {
 		let notifier = create_test_notifier("Test message");
 		let result = notifier.notify("Test message").await;
 		assert!(result.is_err());
+
+		let error = result.unwrap_err();
+		assert!(matches!(error, NotificationError::NotifyFailed { .. }));
 	}
 
 	#[tokio::test]
@@ -264,5 +288,8 @@ mod tests {
 			.notify_with_payload("Test message", HashMap::new())
 			.await;
 		assert!(result.is_err());
+
+		let error = result.unwrap_err();
+		assert!(matches!(error, NotificationError::NotifyFailed { .. }));
 	}
 }

@@ -1,9 +1,15 @@
 use openzeppelin_monitor::{
 	models::{EVMMonitorMatch, MatchConditions, Monitor, MonitorMatch, TriggerType},
-	services::notification::{NotificationService, Notifier, WebhookConfig, WebhookNotifier},
-	utils::tests::{
-		evm::{monitor::MonitorBuilder, transaction::TransactionBuilder},
-		trigger::TriggerBuilder,
+	services::notification::{
+		NotificationError, NotificationService, Notifier, WebhookConfig, WebhookNotifier,
+	},
+	utils::{
+		tests::{
+			evm::{monitor::MonitorBuilder, transaction::TransactionBuilder},
+			get_http_client_from_notification_pool,
+			trigger::TriggerBuilder,
+		},
+		HttpRetryConfig,
 	},
 };
 use serde_json::json;
@@ -48,7 +54,7 @@ async fn test_webhook_notification_success() {
 		.create_async()
 		.await;
 
-	let notifier = WebhookNotifier::new(WebhookConfig {
+	let config = WebhookConfig {
 		url: server.url(),
 		url_params: None,
 		title: "Test Alert".to_string(),
@@ -57,8 +63,9 @@ async fn test_webhook_notification_success() {
 		secret: None,
 		headers: None,
 		payload_fields: None,
-	})
-	.unwrap();
+	};
+	let http_client = get_http_client_from_notification_pool().await;
+	let notifier = WebhookNotifier::new(config, http_client).unwrap();
 
 	// Prepare and send test message
 	let mut variables = HashMap::new();
@@ -72,17 +79,19 @@ async fn test_webhook_notification_success() {
 }
 
 #[tokio::test]
-async fn test_webhook_notification_failure() {
+async fn test_webhook_notification_failure_retryable_error() {
 	// Setup async mock server to simulate failure
 	let mut server = mockito::Server::new_async().await;
+	let default_retries_count = HttpRetryConfig::default().max_retries as usize;
 	let mock = server
 		.mock("GET", "/")
 		.with_status(500)
 		.with_body("Internal Server Error")
+		.expect(1 + default_retries_count)
 		.create_async()
 		.await;
 
-	let notifier = WebhookNotifier::new(WebhookConfig {
+	let config = WebhookConfig {
 		url: server.url(),
 		url_params: None,
 		title: "Test Alert".to_string(),
@@ -91,8 +100,40 @@ async fn test_webhook_notification_failure() {
 		secret: None,
 		headers: None,
 		payload_fields: None,
-	})
-	.unwrap();
+	};
+	let http_client = get_http_client_from_notification_pool().await;
+	let notifier = WebhookNotifier::new(config, http_client).unwrap();
+
+	let result = notifier.notify("Test message").await;
+
+	assert!(result.is_err());
+	mock.assert();
+}
+
+#[tokio::test]
+async fn test_webhook_notification_failure_non_retryable_error() {
+	// Setup async mock server to simulate failure
+	let mut server = mockito::Server::new_async().await;
+	let mock = server
+		.mock("GET", "/")
+		.with_status(400)
+		.with_body("Bad Request")
+		.expect(1) // 1 initial call, no retries for non-retryable
+		.create_async()
+		.await;
+
+	let config = WebhookConfig {
+		url: server.url(),
+		url_params: None,
+		title: "Test Alert".to_string(),
+		body_template: "Test message".to_string(),
+		method: Some("GET".to_string()),
+		secret: None,
+		headers: None,
+		payload_fields: None,
+	};
+	let http_client = get_http_client_from_notification_pool().await;
+	let notifier = WebhookNotifier::new(config, http_client).unwrap();
 
 	let result = notifier.notify("Test message").await;
 
@@ -126,7 +167,7 @@ async fn test_notification_service_webhook_execution() {
 	let monitor_match = create_test_evm_match(create_test_monitor("test_monitor"));
 
 	let result = notification_service
-		.execute(&trigger, variables, &monitor_match, &HashMap::new())
+		.execute(&trigger, &variables, &monitor_match, &HashMap::new())
 		.await;
 
 	assert!(result.is_ok());
@@ -137,12 +178,14 @@ async fn test_notification_service_webhook_execution() {
 async fn test_notification_service_webhook_execution_failure() {
 	let notification_service = NotificationService::new();
 	let mut server = mockito::Server::new_async().await;
+	let default_retries_count = HttpRetryConfig::default().max_retries as usize;
 
 	// Setup mock webhook server with less strict matching
 	let mock = server
 		.mock("GET", "/")
 		.with_status(500)
 		.with_header("content-type", "application/json")
+		.expect(1 + default_retries_count)
 		.create_async()
 		.await;
 
@@ -156,10 +199,14 @@ async fn test_notification_service_webhook_execution_failure() {
 	let monitor_match = create_test_evm_match(create_test_monitor("test_monitor"));
 
 	let result = notification_service
-		.execute(&trigger, HashMap::new(), &monitor_match, &HashMap::new())
+		.execute(&trigger, &HashMap::new(), &monitor_match, &HashMap::new())
 		.await;
 
 	assert!(result.is_err());
+
+	let error = result.unwrap_err();
+	assert!(matches!(error, NotificationError::NotifyFailed(_)));
+
 	mock.assert();
 }
 
@@ -177,7 +224,7 @@ async fn test_notification_service_webhook_execution_invalid_config() {
 	let monitor_match = create_test_evm_match(create_test_monitor("test_monitor"));
 
 	let result = notification_service
-		.execute(&trigger, HashMap::new(), &monitor_match, &HashMap::new())
+		.execute(&trigger, &HashMap::new(), &monitor_match, &HashMap::new())
 		.await;
 
 	// Verify we get the specific "Invalid webhook configuration" error
@@ -203,20 +250,21 @@ async fn test_notify_with_payload_merges_default_fields() {
 		.create_async()
 		.await;
 
-	let notifier = WebhookNotifier::new(WebhookConfig {
+	let config = WebhookConfig {
 		url: server.url(),
 		url_params: None,
 		title: "Test".to_string(),
 		body_template: "Test message".to_string(),
-		method: None,
+		method: Some("POST".to_string()),
 		secret: None,
 		headers: None,
 		payload_fields: Some(HashMap::from([(
 			"default_field".to_string(),
 			serde_json::json!("default_value"),
 		)])),
-	})
-	.unwrap();
+	};
+	let http_client = get_http_client_from_notification_pool().await;
+	let notifier = WebhookNotifier::new(config, http_client).unwrap();
 
 	let mut payload = HashMap::new();
 	payload.insert(

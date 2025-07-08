@@ -10,6 +10,7 @@ mod evm {
 }
 mod stellar {
 	pub mod client;
+	pub mod error;
 }
 mod midnight {
 	pub mod client;
@@ -20,3 +21,4 @@ pub use midnight::client::{
 	MidnightClient, MidnightClientTrait, SubstrateClientTrait as MidnightSubstrateClientTrait,
 };
 pub use stellar::client::{StellarClient, StellarClientTrait};
+pub use stellar::error::StellarClientError;

@@ -6,7 +6,6 @@
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use reqwest_middleware::ClientWithMiddleware;
-use reqwest_retry::policies::ExponentialBackoff;
 use serde::Serialize;
 use serde_json::Value;
 use std::{sync::Arc, time::Duration};
@@ -21,7 +20,7 @@ use crate::{
 				config::WsConfig, connection::WebSocketConnection,
 				endpoint_manager::EndpointManager,
 			},
-			BlockchainTransport, RotatingTransport, TransientErrorRetryStrategy,
+			BlockchainTransport, RotatingTransport,
 		},
 		TransportError,
 	},
@@ -404,17 +403,6 @@ impl BlockchainTransport for WsTransportClient {
 		P: Into<Value> + Send + Clone + Serialize,
 	{
 		WsTransportClient::send_raw_request(self, method, params).await
-	}
-
-	/// Updates the retry policy configuration
-	///
-	/// Note: Not applicable for WebSocket transport
-	fn set_retry_policy(
-		&mut self,
-		_retry_policy: ExponentialBackoff,
-		_retry_strategy: Option<TransientErrorRetryStrategy>,
-	) -> Result<(), anyhow::Error> {
-		Err(anyhow::anyhow!("`set_retry_policy` not implemented"))
 	}
 
 	/// Update endpoint manager with a new client

@@ -14,7 +14,7 @@
     }
   },
   "evm_large_transfer_usdc_slack_markdown": {
-    "name": "Large Transfer Slack Notification (formatted)",
+    "name": "Large Transfer Slack Notification (markdown)",
     "trigger_type": "slack",
     "config": {
       "slack_url": {

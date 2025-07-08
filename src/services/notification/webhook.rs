@@ -8,11 +8,12 @@ use chrono::Utc;
 use hmac::{Hmac, Mac};
 use reqwest::{
 	header::{HeaderMap, HeaderName, HeaderValue},
-	Client, Method,
+	Method,
 };
+use reqwest_middleware::ClientWithMiddleware;
 use serde::Serialize;
 use sha2::Sha256;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
 	models::TriggerTypeConfig,
@@ -21,13 +22,6 @@ use crate::{
 
 /// HMAC SHA256 type alias
 type HmacSha256 = Hmac<Sha256>;
-
-/// Represents a webhook payload with additional fields
-#[derive(Serialize, Debug)]
-pub struct WebhookPayload {
-	#[serde(flatten)]
-	fields: HashMap<String, serde_json::Value>,
-}
 
 /// Represents a webhook configuration
 #[derive(Clone)]
@@ -43,6 +37,7 @@ pub struct WebhookConfig {
 }
 
 /// Implementation of webhook notifications via webhooks
+#[derive(Debug)]
 pub struct WebhookNotifier {
 	/// Webhook URL for message delivery
 	pub url: String,
@@ -52,8 +47,8 @@ pub struct WebhookNotifier {
 	pub title: String,
 	/// Message template with variable placeholders
 	pub body_template: String,
-	/// HTTP client for webhook requests
-	pub client: Client,
+	/// Configured HTTP client for webhook requests with retry capabilities
+	pub client: Arc<ClientWithMiddleware>,
 	/// HTTP method to use for the webhook request
 	pub method: Option<String>,
 	/// Secret to use for the webhook request
@@ -77,10 +72,14 @@ impl WebhookNotifier {
 	///
 	/// # Arguments
 	/// * `config` - Webhook configuration
+	/// * `http_client` - HTTP client with middleware for retries
 	///
 	/// # Returns
-	/// * `Result<Self, Box<NotificationError>>` - Notifier instance if config is valid
-	pub fn new(config: WebhookConfig) -> Result<Self, Box<NotificationError>> {
+	/// * `Result<Self, NotificationError>` - Notifier instance if config is valid
+	pub fn new(
+		config: WebhookConfig,
+		http_client: Arc<ClientWithMiddleware>,
+	) -> Result<Self, NotificationError> {
 		let mut headers = config.headers.unwrap_or_default();
 		if !headers.contains_key("Content-Type") {
 			headers.insert("Content-Type".to_string(), "application/json".to_string());
@@ -90,7 +89,7 @@ impl WebhookNotifier {
 			url_params: config.url_params,
 			title: config.title,
 			body_template: config.body_template,
-			client: Client::new(),
+			client: http_client,
 			method: Some(config.method.unwrap_or("POST".to_string())),
 			secret: config.secret,
 			headers: Some(headers),
@@ -117,29 +116,38 @@ impl WebhookNotifier {
 	///
 	/// # Arguments
 	/// * `config` - Trigger configuration containing Webhook parameters
+	/// * `http_client` - HTTP client with middleware for retries
 	///
 	/// # Returns
-	/// * `Option<Self>` - Notifier instance if config is Webhook type
-	pub fn from_config(config: &TriggerTypeConfig) -> Option<Self> {
-		match config {
-			TriggerTypeConfig::Webhook {
-				url,
-				message,
-				method,
-				secret,
-				headers,
-			} => Some(Self {
+	/// * `Result<Self>` - Notifier instance if config is Webhook type
+	pub fn from_config(
+		config: &TriggerTypeConfig,
+		http_client: Arc<ClientWithMiddleware>,
+	) -> Result<Self, NotificationError> {
+		if let TriggerTypeConfig::Webhook {
+			url,
+			message,
+			method,
+			secret,
+			headers,
+			..
+		} = config
+		{
+			let webhook_config = WebhookConfig {
 				url: url.as_ref().to_string(),
 				url_params: None,
 				title: message.title.clone(),
 				body_template: message.body.clone(),
-				client: Client::new(),
 				method: method.clone(),
 				secret: secret.as_ref().map(|s| s.as_ref().to_string()),
 				headers: headers.clone(),
 				payload_fields: None,
-			}),
-			_ => None,
+			};
+
+			WebhookNotifier::new(webhook_config, http_client)
+		} else {
+			let msg = format!("Invalid webhook configuration: {:?}", config);
+			Err(NotificationError::config_error(msg, None, None))
 		}
 	}
 
@@ -147,7 +155,16 @@ impl WebhookNotifier {
 		&self,
 		secret: &str,
 		payload: &WebhookMessage,
-	) -> Result<(String, String), Box<NotificationError>> {
+	) -> Result<(String, String), NotificationError> {
+		// Explicitly reject empty secret, because `HmacSha256::new_from_slice` currently allows empty secrets
+		if secret.is_empty() {
+			return Err(NotificationError::notify_failed(
+				"Invalid secret: cannot be empty.".to_string(),
+				None,
+				None,
+			));
+		}
+
 		let timestamp = Utc::now().timestamp_millis();
 
 		// Create HMAC instance
@@ -174,8 +191,8 @@ impl Notifier for WebhookNotifier {
 	/// * `message` - The formatted message to send
 	///
 	/// # Returns
-	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
+	/// * `Result<(), NotificationError>` - Success or error
+	async fn notify(&self, message: &str) -> Result<(), NotificationError> {
 		// Default payload with title and body
 		let mut payload_fields = HashMap::new();
 		payload_fields.insert("title".to_string(), serde_json::json!(self.title));
@@ -191,12 +208,12 @@ impl Notifier for WebhookNotifier {
 	/// * `payload_fields` - Additional fields to include in the payload
 	///
 	/// # Returns
-	/// * `Result<(), anyhow::Error>` - Success or error
+	/// * `Result<(), NotificationError>` - Success or error
 	async fn notify_with_payload(
 		&self,
 		message: &str,
 		mut payload_fields: HashMap<String, serde_json::Value>,
-	) -> Result<(), anyhow::Error> {
+	) -> Result<(), NotificationError> {
 		let mut url = self.url.clone();
 		// Add URL parameters if present
 		if let Some(params) = &self.url_params {
@@ -238,52 +255,80 @@ impl Notifier for WebhookNotifier {
 				body: message.to_string(),
 			};
 
-			let (signature, timestamp) = self
-				.sign_request(secret, &payload_for_signing)
-				.map_err(|e| NotificationError::internal_error(e.to_string(), None, None))?;
+			let (signature, timestamp) =
+				self.sign_request(secret, &payload_for_signing)
+					.map_err(|e| {
+						NotificationError::internal_error(e.to_string(), Some(e.into()), None)
+					})?;
 
 			// Add signature headers
 			headers.insert(
 				HeaderName::from_static("x-signature"),
-				HeaderValue::from_str(&signature)
-					.map_err(|_| anyhow::anyhow!("Invalid signature value"))?,
+				HeaderValue::from_str(&signature).map_err(|e| {
+					NotificationError::notify_failed(
+						"Invalid signature value".to_string(),
+						Some(e.into()),
+						None,
+					)
+				})?,
 			);
 			headers.insert(
 				HeaderName::from_static("x-timestamp"),
-				HeaderValue::from_str(&timestamp)
-					.map_err(|_| anyhow::anyhow!("Invalid timestamp value"))?,
+				HeaderValue::from_str(&timestamp).map_err(|e| {
+					NotificationError::notify_failed(
+						"Invalid timestamp value".to_string(),
+						Some(e.into()),
+						None,
+					)
+				})?,
 			);
 		}
 
 		// Add custom headers
 		if let Some(headers_map) = &self.headers {
 			for (key, value) in headers_map {
-				let header_name = HeaderName::from_bytes(key.as_bytes())
-					.map_err(|_| anyhow::anyhow!("Invalid header name: {}", key))?;
-				let header_value = HeaderValue::from_str(value)
-					.map_err(|_| anyhow::anyhow!("Invalid header value for key: {}", key))?;
+				let header_name = HeaderName::from_bytes(key.as_bytes()).map_err(|e| {
+					NotificationError::notify_failed(
+						format!("Invalid header name: {}", key),
+						Some(e.into()),
+						None,
+					)
+				})?;
+				let header_value = HeaderValue::from_str(value).map_err(|e| {
+					NotificationError::notify_failed(
+						format!("Invalid header value for {}: {}", key, value),
+						Some(e.into()),
+						None,
+					)
+				})?;
 				headers.insert(header_name, header_value);
 			}
 		}
-
-		let payload = WebhookPayload {
-			fields: payload_fields,
-		};
 
 		// Send request with custom payload
 		let response = self
 			.client
 			.request(method, url.as_str())
 			.headers(headers)
-			.json(&payload)
+			.json(&payload_fields)
 			.send()
 			.await
-			.map_err(|e| anyhow::anyhow!("Failed to send webhook notification: {}", e))?;
+			.map_err(|e| {
+				NotificationError::notify_failed(
+					format!("Failed to send webhook request: {}", e),
+					Some(e.into()),
+					None,
+				)
+			})?;
 
 		let status = response.status();
 
 		if !status.is_success() {
-			return Err(anyhow::anyhow!("Webhook returned error status: {}", status));
+			return Err(NotificationError::notify_failed(
+				format!("Webhook request failed with status: {}", status),
+				None,
+				None,
+			));
 		}
 
 		Ok(())
@@ -292,7 +337,10 @@ impl Notifier for WebhookNotifier {
 
 #[cfg(test)]
 mod tests {
-	use crate::models::{NotificationMessage, SecretString, SecretValue};
+	use crate::{
+		models::{NotificationMessage, SecretString, SecretValue},
+		utils::{tests::create_test_http_client, HttpRetryConfig},
+	};
 
 	use super::*;
 	use mockito::{Matcher, Mock};
@@ -304,7 +352,8 @@ mod tests {
 		secret: Option<&str>,
 		headers: Option<HashMap<String, String>>,
 	) -> WebhookNotifier {
-		WebhookNotifier::new(WebhookConfig {
+		let http_client = create_test_http_client();
+		let config = WebhookConfig {
 			url: url.to_string(),
 			url_params: None,
 			title: "Alert".to_string(),
@@ -313,8 +362,8 @@ mod tests {
 			secret: secret.map(|s| s.to_string()),
 			headers,
 			payload_fields: None,
-		})
-		.unwrap()
+		};
+		WebhookNotifier::new(config, http_client).unwrap()
 	}
 
 	fn create_test_webhook_config() -> TriggerTypeConfig {
@@ -327,6 +376,7 @@ mod tests {
 				title: "Test Alert".to_string(),
 				body: "Test message ${value}".to_string(),
 			},
+			retry_policy: HttpRetryConfig::default(),
 		}
 	}
 
@@ -402,6 +452,23 @@ mod tests {
 		assert!(!timestamp.is_empty());
 	}
 
+	#[test]
+	fn test_sign_request_fails_empty_secret() {
+		let notifier =
+			create_test_notifier("https://webhook.example.com", "Test message", None, None);
+		let payload = WebhookMessage {
+			title: "Test Title".to_string(),
+			body: "Test message".to_string(),
+		};
+		let empty_secret = "";
+
+		let result = notifier.sign_request(empty_secret, &payload);
+		assert!(result.is_err());
+
+		let error = result.unwrap_err();
+		assert!(matches!(error, NotificationError::NotifyFailed(_)));
+	}
+
 	////////////////////////////////////////////////////////////
 	// from_config tests
 	////////////////////////////////////////////////////////////
@@ -409,14 +476,36 @@ mod tests {
 	#[test]
 	fn test_from_config_with_webhook_config() {
 		let config = create_test_webhook_config();
-
-		let notifier = WebhookNotifier::from_config(&config);
-		assert!(notifier.is_some());
+		let http_client = create_test_http_client();
+		let notifier = WebhookNotifier::from_config(&config, http_client);
+		assert!(notifier.is_ok());
 
 		let notifier = notifier.unwrap();
 		assert_eq!(notifier.url, "https://webhook.example.com");
 		assert_eq!(notifier.title, "Test Alert");
 		assert_eq!(notifier.body_template, "Test message ${value}");
+	}
+
+	#[test]
+	fn test_from_config_invalid_type() {
+		// Create a config that is not a Telegram type
+		let config = TriggerTypeConfig::Slack {
+			slack_url: SecretValue::Plain(SecretString::new(
+				"https://slack.example.com".to_string(),
+			)),
+			message: NotificationMessage {
+				title: "Test Alert".to_string(),
+				body: "Test message ${value}".to_string(),
+			},
+			retry_policy: HttpRetryConfig::default(),
+		};
+
+		let http_client = create_test_http_client();
+		let notifier = WebhookNotifier::from_config(&config, http_client);
+		assert!(notifier.is_err());
+
+		let error = notifier.unwrap_err();
+		assert!(matches!(error, NotificationError::ConfigError { .. }));
 	}
 
 	////////////////////////////////////////////////////////////
@@ -638,7 +727,7 @@ mod tests {
 		url_params.insert("param1".to_string(), "value1".to_string());
 		url_params.insert("param2".to_string(), "value2".to_string());
 
-		let notifier = WebhookNotifier::new(WebhookConfig {
+		let config = WebhookConfig {
 			url: server.url(),
 			url_params: Some(url_params),
 			title: "Alert".to_string(),
@@ -647,8 +736,9 @@ mod tests {
 			secret: None,
 			headers: None,
 			payload_fields: None,
-		})
-		.unwrap();
+		};
+		let http_client = create_test_http_client();
+		let notifier = WebhookNotifier::new(config, http_client).unwrap();
 
 		let result = notifier
 			.notify_with_payload("Test message", HashMap::new())
@@ -666,7 +756,7 @@ mod tests {
 			.create_async()
 			.await;
 
-		let notifier = WebhookNotifier::new(WebhookConfig {
+		let config = WebhookConfig {
 			url: server.url(),
 			url_params: None,
 			title: "Alert".to_string(),
@@ -675,8 +765,9 @@ mod tests {
 			secret: None,
 			headers: None,
 			payload_fields: None,
-		})
-		.unwrap();
+		};
+		let http_client = create_test_http_client();
+		let notifier = WebhookNotifier::new(config, http_client).unwrap();
 
 		let result = notifier
 			.notify_with_payload("Test message", HashMap::new())
@@ -707,7 +798,7 @@ mod tests {
 			serde_json::json!("default_value"),
 		);
 
-		let notifier = WebhookNotifier::new(WebhookConfig {
+		let config = WebhookConfig {
 			url: server.url(),
 			url_params: None,
 			title: "Alert".to_string(),
@@ -716,8 +807,9 @@ mod tests {
 			secret: None,
 			headers: None,
 			payload_fields: Some(default_fields),
-		})
-		.unwrap();
+		};
+		let http_client = create_test_http_client();
+		let notifier = WebhookNotifier::new(config, http_client).unwrap();
 
 		let mut payload = HashMap::new();
 		payload.insert(
@@ -751,7 +843,7 @@ mod tests {
 			serde_json::json!("default_value"),
 		);
 
-		let notifier = WebhookNotifier::new(WebhookConfig {
+		let config = WebhookConfig {
 			url: server.url(),
 			url_params: None,
 			title: "Alert".to_string(),
@@ -760,8 +852,9 @@ mod tests {
 			secret: None,
 			headers: None,
 			payload_fields: Some(default_fields),
-		})
-		.unwrap();
+		};
+		let http_client = create_test_http_client();
+		let notifier = WebhookNotifier::new(config, http_client).unwrap();
 
 		let mut payload = HashMap::new();
 		payload.insert(
@@ -771,6 +864,62 @@ mod tests {
 
 		let result = notifier.notify_with_payload("Test message", payload).await;
 		assert!(result.is_ok());
+		mock.assert();
+	}
+
+	#[tokio::test]
+	async fn test_notify_with_payload_invalid_url() {
+		let notifier = create_test_notifier("invalid-url", "Test message", None, None);
+
+		let result = notifier
+			.notify_with_payload("Test message", HashMap::new())
+			.await;
+		assert!(result.is_err());
+
+		let error = result.unwrap_err();
+		assert!(matches!(error, NotificationError::NotifyFailed { .. }));
+	}
+
+	#[tokio::test]
+	async fn test_notify_with_payload_failure_with_retryable_error() {
+		let mut server = mockito::Server::new_async().await;
+		let default_retries_count = HttpRetryConfig::default().max_retries as usize;
+		let mock = server
+			.mock("POST", "/")
+			.with_status(500)
+			.with_body("Internal Server Error")
+			.expect(1 + default_retries_count)
+			.create_async()
+			.await;
+
+		let notifier = create_test_notifier(server.url().as_str(), "Test message", None, None);
+
+		let result = notifier
+			.notify_with_payload("Test message", HashMap::new())
+			.await;
+
+		assert!(result.is_err());
+		mock.assert();
+	}
+
+	#[tokio::test]
+	async fn test_notify_with_payload_failure_with_non_retryable_error() {
+		let mut server = mockito::Server::new_async().await;
+		let mock = server
+			.mock("POST", "/")
+			.with_status(400)
+			.with_body("Bad Request")
+			.expect(1)
+			.create_async()
+			.await;
+
+		let notifier = create_test_notifier(server.url().as_str(), "Test message", None, None);
+
+		let result = notifier
+			.notify_with_payload("Test message", HashMap::new())
+			.await;
+
+		assert!(result.is_err());
 		mock.assert();
 	}
 }

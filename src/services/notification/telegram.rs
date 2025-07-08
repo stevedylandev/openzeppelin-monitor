@@ -5,7 +5,8 @@
 
 use async_trait::async_trait;
 use regex::Regex;
-use std::collections::HashMap;
+use reqwest_middleware::ClientWithMiddleware;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
 	models::TriggerTypeConfig,
@@ -13,6 +14,7 @@ use crate::{
 };
 
 /// Implementation of Telegram notifications via webhooks
+#[derive(Debug)]
 pub struct TelegramNotifier {
 	inner: WebhookNotifier,
 	/// Disable web preview
@@ -28,6 +30,7 @@ impl TelegramNotifier {
 	/// * `disable_web_preview` - Disable web preview
 	/// * `title` - Title to display in the message
 	/// * `body_template` - Message template with variables
+	/// * `http_client` - HTTP client with middleware for retries
 	pub fn new(
 		base_url: Option<String>,
 		token: String,
@@ -35,29 +38,32 @@ impl TelegramNotifier {
 		disable_web_preview: Option<bool>,
 		title: String,
 		body_template: String,
-	) -> Result<Self, Box<NotificationError>> {
+		http_client: Arc<ClientWithMiddleware>,
+	) -> Result<Self, NotificationError> {
 		let url = format!(
 			"{}/bot{}/sendMessage",
 			base_url.unwrap_or("https://api.telegram.org".to_string()),
 			token
 		);
 
-		// Set up initial URL parameters
-		let mut url_params = HashMap::new();
-		url_params.insert("chat_id".to_string(), chat_id);
-		url_params.insert("parse_mode".to_string(), "MarkdownV2".to_string());
+		// Set up payload fields for the webhook
+		let mut payload_fields = HashMap::new();
+		payload_fields.insert("chat_id".to_string(), serde_json::json!(chat_id));
+		payload_fields.insert("parse_mode".to_string(), serde_json::json!("MarkdownV2"));
+
+		let config = WebhookConfig {
+			url,
+			url_params: None,
+			title,
+			body_template,
+			method: Some("POST".to_string()),
+			secret: None,
+			headers: None,
+			payload_fields: Some(payload_fields),
+		};
 
 		Ok(Self {
-			inner: WebhookNotifier::new(WebhookConfig {
-				url,
-				url_params: Some(url_params),
-				title,
-				body_template,
-				method: Some("GET".to_string()),
-				secret: None,
-				headers: None,
-				payload_fields: None,
-			})?,
+			inner: WebhookNotifier::new(config, http_client)?,
 			disable_web_preview: disable_web_preview.unwrap_or(false),
 		})
 	}
@@ -160,41 +166,48 @@ impl TelegramNotifier {
 	///
 	/// # Arguments
 	/// * `config` - Trigger configuration containing Telegram parameters
+	/// * `http_client` - HTTP client with middleware for retries
 	///
 	/// # Returns
-	/// * `Option<Self>` - Notifier instance if config is Telegram type
-	pub fn from_config(config: &TriggerTypeConfig) -> Option<Self> {
-		match config {
-			TriggerTypeConfig::Telegram {
-				token,
-				chat_id,
-				message,
-				disable_web_preview,
-			} => {
-				let mut url_params = HashMap::new();
-				url_params.insert("chat_id".to_string(), chat_id.clone());
-				url_params.insert("parse_mode".to_string(), "MarkdownV2".to_string());
+	/// * `Result<Self, NotificationError>` - Notifier instance if config is Telegram type
+	pub fn from_config(
+		config: &TriggerTypeConfig,
+		http_client: Arc<ClientWithMiddleware>,
+	) -> Result<Self, NotificationError> {
+		if let TriggerTypeConfig::Telegram {
+			token,
+			chat_id,
+			disable_web_preview,
+			message,
+			..
+		} = config
+		{
+			// Set up payload fields for the webhook
+			let mut payload_fields = HashMap::new();
+			payload_fields.insert("chat_id".to_string(), serde_json::json!(chat_id));
+			payload_fields.insert("parse_mode".to_string(), serde_json::json!("MarkdownV2"));
 
-				WebhookNotifier::new(WebhookConfig {
-					url: format!("https://api.telegram.org/bot{}/sendMessage", token.as_str()),
-					url_params: Some(url_params),
-					title: message.title.clone(),
-					body_template: message.body.clone(),
-					method: Some("GET".to_string()),
-					secret: None,
-					headers: Some(HashMap::from([(
-						"Content-Type".to_string(),
-						"application/json".to_string(),
-					)])),
-					payload_fields: None,
-				})
-				.ok()
-				.map(|inner| Self {
-					inner,
-					disable_web_preview: disable_web_preview.unwrap_or(false),
-				})
-			}
-			_ => None,
+			let webhook_config = WebhookConfig {
+				url: format!("https://api.telegram.org/bot{}/sendMessage", token),
+				url_params: None,
+				title: message.title.clone(),
+				body_template: message.body.clone(),
+				method: Some("POST".to_string()),
+				secret: None,
+				headers: None,
+				payload_fields: Some(payload_fields),
+			};
+
+			Ok(Self {
+				inner: WebhookNotifier::new(webhook_config, http_client)?,
+				disable_web_preview: disable_web_preview.unwrap_or(false),
+			})
+		} else {
+			Err(NotificationError::config_error(
+				format!("Invalid telegram configuration: {:?}", config),
+				None,
+				None,
+			))
 		}
 	}
 }
@@ -207,35 +220,33 @@ impl Notifier for TelegramNotifier {
 	/// * `message` - The formatted message to send
 	///
 	/// # Returns
-	/// * `Result<(), anyhow::Error>` - Success or error
-	async fn notify(&self, message: &str) -> Result<(), anyhow::Error> {
-		// Add message and disable_web_preview to URL parameters
-		let mut url_params = self.inner.url_params.clone().unwrap_or_default();
-		url_params.insert("text".to_string(), message.to_string());
-		url_params.insert(
+	/// * `Result<(), NotificationError>` - Success or error
+	async fn notify(&self, message: &str) -> Result<(), NotificationError> {
+		// Get default payload fields
+		let mut payload_fields = self.inner.payload_fields.clone().unwrap_or_default();
+
+		// Add the dynamic fields for this specific notification.
+		payload_fields.insert("text".to_string(), serde_json::json!(message));
+		payload_fields.insert(
 			"disable_web_page_preview".to_string(),
-			self.disable_web_preview.to_string(),
+			serde_json::json!(self.disable_web_preview),
 		);
 
-		// Create a new WebhookNotifier with updated URL parameters
-		let notifier = WebhookNotifier::new(WebhookConfig {
-			url: self.inner.url.clone(),
-			url_params: Some(url_params),
-			title: self.inner.title.clone(),
-			body_template: self.inner.body_template.clone(),
-			method: Some("GET".to_string()),
-			secret: None,
-			headers: self.inner.headers.clone(),
-			payload_fields: None,
-		})?;
-
-		notifier.notify_with_payload(message, HashMap::new()).await
+		// Send the notification using the inner Webhook notifier
+		self.inner
+			// TODO: The `message` parameter is required by the Notifier trait for generic
+			// webhook signing, but it's duplicated in this specific payload
+			.notify_with_payload(message, payload_fields)
+			.await
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use crate::models::{NotificationMessage, SecretString, SecretValue};
+	use crate::{
+		models::{NotificationMessage, SecretString, SecretValue},
+		utils::{tests::create_test_http_client, HttpRetryConfig},
+	};
 
 	use super::*;
 
@@ -247,6 +258,7 @@ mod tests {
 			Some(true),
 			"Alert".to_string(),
 			body_template.to_string(),
+			create_test_http_client(),
 		)
 		.unwrap()
 	}
@@ -260,6 +272,7 @@ mod tests {
 				title: "Alert".to_string(),
 				body: "Test message ${value}".to_string(),
 			},
+			retry_policy: HttpRetryConfig::default(),
 		}
 	}
 
@@ -310,17 +323,34 @@ mod tests {
 	#[test]
 	fn test_from_config_with_telegram_config() {
 		let config = create_test_telegram_config();
-
-		let notifier = TelegramNotifier::from_config(&config);
-		assert!(notifier.is_some());
+		let http_client = create_test_http_client();
+		let notifier = TelegramNotifier::from_config(&config, http_client);
+		assert!(notifier.is_ok());
 
 		let notifier = notifier.unwrap();
 		assert_eq!(
 			notifier.inner.url,
-			"https://api.telegram.org/bottest-token/sendMessage"
+			"https://api.telegram.org/bot<secret string>/sendMessage"
 		);
 		assert!(notifier.disable_web_preview);
 		assert_eq!(notifier.inner.body_template, "Test message ${value}");
+	}
+
+	#[test]
+	fn test_from_config_disable_web_preview_default_in_config() {
+		let config = TriggerTypeConfig::Telegram {
+			token: SecretValue::Plain(SecretString::new("test-token".to_string())),
+			chat_id: "test-chat-id".to_string(),
+			disable_web_preview: None, // Test default within TriggerTypeConfig
+			message: NotificationMessage {
+				title: "Alert".to_string(),
+				body: "Test message ${value}".to_string(),
+			},
+			retry_policy: HttpRetryConfig::default(),
+		};
+		let http_client = create_test_http_client();
+		let notifier = TelegramNotifier::from_config(&config, http_client).unwrap();
+		assert!(!notifier.disable_web_preview);
 	}
 
 	////////////////////////////////////////////////////////////
@@ -332,6 +362,9 @@ mod tests {
 		let notifier = create_test_notifier("Test message");
 		let result = notifier.notify("Test message").await;
 		assert!(result.is_err());
+
+		let error = result.unwrap_err();
+		assert!(matches!(error, NotificationError::NotifyFailed { .. }));
 	}
 
 	#[tokio::test]
@@ -341,13 +374,18 @@ mod tests {
 			.notify_with_payload("Test message", HashMap::new())
 			.await;
 		assert!(result.is_err());
+
+		let error = result.unwrap_err();
+		assert!(matches!(error, NotificationError::NotifyFailed { .. }));
 	}
 
 	#[test]
 	fn test_escape_markdown_v2() {
 		// Test for real life examples
 		assert_eq!(
-			TelegramNotifier::escape_markdown_v2("*Transaction Alert*\n*Network:* Base Sepolia\n*From:* 0x00001\n*To:* 0x00002\n*Transaction:* [View on Blockscout](https://base-sepolia.blockscout.com/tx/0x00003)"),
+			TelegramNotifier::escape_markdown_v2(
+				"*Transaction Alert*\n*Network:* Base Sepolia\n*From:* 0x00001\n*To:* 0x00002\n*Transaction:* [View on Blockscout](https://base-sepolia.blockscout.com/tx/0x00003)"
+			),
 			"*Transaction Alert*\n*Network:* Base Sepolia\n*From:* 0x00001\n*To:* 0x00002\n*Transaction:* [View on Blockscout](https://base\\-sepolia\\.blockscout\\.com/tx/0x00003)"
 		);
 

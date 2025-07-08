@@ -4,8 +4,7 @@ use crate::integration::mocks::{
 use openzeppelin_monitor::{
 	models::{BlockChainType, Network},
 	services::blockchain::{
-		BlockchainTransport, MidnightWsTransportClient, RotatingTransport,
-		TransientErrorRetryStrategy, WsConfig,
+		BlockchainTransport, MidnightWsTransportClient, RotatingTransport, WsConfig,
 	},
 	utils::tests::builders::network::NetworkBuilder,
 };
@@ -164,12 +163,6 @@ async fn test_ws_transport_unimplemented_methods() {
 	let mut client = MidnightWsTransportClient::new(&network, None)
 		.await
 		.unwrap();
-
-	// Test set_retry_policy
-	let policy = ExponentialBackoff::builder().build_with_max_retries(3);
-	let result = client.set_retry_policy(policy, Some(TransientErrorRetryStrategy));
-	assert!(result.is_err(), "set_retry_policy should return error");
-	assert!(result.unwrap_err().to_string().contains("not implemented"));
 
 	// Test update_endpoint_manager_client
 	let client_builder = ClientBuilder::new(reqwest::Client::new())

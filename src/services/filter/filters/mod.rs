@@ -29,9 +29,6 @@ use crate::{
 	models::{BlockType, ContractSpec, Monitor, MonitorMatch, Network},
 	services::{blockchain::BlockFilterFactory, filter::error::FilterError},
 };
-pub use evm::filter::EVMBlockFilter;
-pub use midnight::filter::MidnightBlockFilter;
-pub use stellar::filter::StellarBlockFilter;
 
 /// Trait for filtering blockchain data
 ///

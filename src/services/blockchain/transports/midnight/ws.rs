@@ -5,16 +5,13 @@
 //! transport implementations while providing specific Midnight-focused functionality.
 
 use reqwest_middleware::ClientWithMiddleware;
-use reqwest_retry::policies::ExponentialBackoff;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
 	models::Network,
 	services::blockchain::{
-		transports::{
-			BlockchainTransport, RotatingTransport, TransientErrorRetryStrategy, WsTransportClient,
-		},
+		transports::{BlockchainTransport, RotatingTransport, WsTransportClient},
 		TransportError, WsConfig,
 	},
 };
@@ -72,19 +69,6 @@ impl BlockchainTransport for MidnightTransportClient {
 		P: Into<Value> + Send + Clone + Serialize,
 	{
 		self.ws_client.send_raw_request(method, params).await
-	}
-
-	/// Sets a new retry policy for the transport
-	///
-	/// Note: Not applicable for WebSocket transport
-	fn set_retry_policy(
-		&mut self,
-		_retry_policy: ExponentialBackoff,
-		_retry_strategy: Option<TransientErrorRetryStrategy>,
-	) -> Result<(), anyhow::Error> {
-		Err(anyhow::anyhow!(
-			"`set_retry_policy` not implemented for WebSocket transport"
-		))
 	}
 
 	/// Update endpoint manager with a new client

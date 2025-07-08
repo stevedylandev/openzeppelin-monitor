@@ -1,9 +1,13 @@
 use openzeppelin_monitor::{
 	models::{EVMMonitorMatch, MatchConditions, Monitor, MonitorMatch},
-	services::notification::{DiscordNotifier, NotificationService, Notifier},
-	utils::tests::{
-		evm::{monitor::MonitorBuilder, transaction::TransactionBuilder},
-		trigger::TriggerBuilder,
+	services::notification::{DiscordNotifier, NotificationError, NotificationService, Notifier},
+	utils::{
+		tests::{
+			evm::{monitor::MonitorBuilder, transaction::TransactionBuilder},
+			get_http_client_from_notification_pool,
+			trigger::TriggerBuilder,
+		},
+		HttpRetryConfig,
 	},
 };
 
@@ -53,6 +57,7 @@ async fn test_discord_notification_success() {
 		server.url(),
 		"Test Alert".to_string(),
 		"Test message with value ${value}".to_string(),
+		get_http_client_from_notification_pool().await,
 	)
 	.unwrap();
 
@@ -68,13 +73,15 @@ async fn test_discord_notification_success() {
 }
 
 #[tokio::test]
-async fn test_discord_notification_failure() {
+async fn test_discord_notification_failure_retryable_error() {
 	// Setup async mock server to simulate failure
 	let mut server = mockito::Server::new_async().await;
+	let default_retries_count = HttpRetryConfig::default().max_retries as usize;
 	let mock = server
 		.mock("POST", "/")
 		.with_status(500)
 		.with_body("Internal Server Error")
+		.expect(1 + default_retries_count)
 		.create_async()
 		.await;
 
@@ -82,6 +89,33 @@ async fn test_discord_notification_failure() {
 		server.url(),
 		"Test Alert".to_string(),
 		"Test message".to_string(),
+		get_http_client_from_notification_pool().await,
+	)
+	.unwrap();
+
+	let result = notifier.notify("Test message").await;
+
+	assert!(result.is_err());
+	mock.assert();
+}
+
+#[tokio::test]
+async fn test_discord_notification_failure_non_retryable_error() {
+	// Setup async mock server to simulate failure
+	let mut server = mockito::Server::new_async().await;
+	let mock = server
+		.mock("POST", "/")
+		.with_status(400)
+		.with_body("Bad Request")
+		.expect(1) // 1 initial call, no retries for non-retryable
+		.create_async()
+		.await;
+
+	let notifier = DiscordNotifier::new(
+		server.url(),
+		"Test Alert".to_string(),
+		"Test message".to_string(),
+		get_http_client_from_notification_pool().await,
 	)
 	.unwrap();
 
@@ -116,7 +150,7 @@ async fn test_notification_service_discord_execution() {
 	let monitor_match = create_test_evm_match(create_test_monitor("test_monitor"));
 
 	let result = notification_service
-		.execute(&trigger, variables, &monitor_match, &HashMap::new())
+		.execute(&trigger, &variables, &monitor_match, &HashMap::new())
 		.await;
 
 	assert!(result.is_ok());
@@ -127,12 +161,14 @@ async fn test_notification_service_discord_execution() {
 async fn test_notification_service_discord_execution_failure() {
 	let notification_service = NotificationService::new();
 	let mut server = mockito::Server::new_async().await;
+	let default_retries_count = HttpRetryConfig::default().max_retries as usize;
 
 	// Setup mock Discord webhook server to simulate failure
 	let mock = server
 		.mock("POST", "/")
 		.with_status(500)
 		.with_body("Internal Server Error")
+		.expect(1 + default_retries_count)
 		.create_async()
 		.await;
 
@@ -145,9 +181,13 @@ async fn test_notification_service_discord_execution_failure() {
 	let monitor_match = create_test_evm_match(create_test_monitor("test_monitor"));
 
 	let result = notification_service
-		.execute(&trigger, HashMap::new(), &monitor_match, &HashMap::new())
+		.execute(&trigger, &HashMap::new(), &monitor_match, &HashMap::new())
 		.await;
 
 	assert!(result.is_err());
+
+	let error = result.unwrap_err();
+	assert!(matches!(error, NotificationError::NotifyFailed(_)));
+
 	mock.assert();
 }
