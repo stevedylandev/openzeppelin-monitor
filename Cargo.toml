@@ -29,6 +29,7 @@ actix-web = "4"
 alloy = { version = "0.15.6", features = ["full"] }
 anyhow = { version = "1.0.97", features = ["std"] }
 async-trait = "0.1"
+backon = "1.5.1"
 base64 = "0.22"
 byte-unit = "5.1.6"
 chrono = "0.4"
@@ -36,7 +37,6 @@ clap = { version = "4.5", features = ["cargo", "derive"] }
 cron = "0.15.0"
 dotenvy = "0.15.7"
 email_address = "0.2.9"
-ethabi = "18.0.0"
 futures = "0.3"
 futures-util = "0.3.31"
 glob = "0.3"
@@ -44,7 +44,7 @@ hex = "0.4"
 hmac = "0.12.0"
 itertools = "0.12.0"                                                                                                                                     # Needed for midnight-node linting errors
 lazy_static = "1.5"
-lettre = "0.11.11"
+lettre = { version = "0.11.11", features = ["tokio1", "tokio1-native-tls"] }
 libc = "0.2"
 log = "0.4"
 midnight-ledger = { git = "https://github.com/midnightntwrk/midnight-ledger-prototype", package = "midnight-ledger", tag = "ledger-4.0.0" }
@@ -105,3 +105,7 @@ name = "openzeppelin-monitor"
 
 [features]
 test-ci-only = []
+fuzzing = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
