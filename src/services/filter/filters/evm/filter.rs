@@ -683,10 +683,7 @@ impl<T: BlockChainClient + EvmClientTrait> BlockFilter for EVMBlockFilter<T> {
 			}
 		};
 
-		tracing::debug!(
-			"Processing block {}",
-			evm_block.number.unwrap_or(U64::from(0))
-		);
+		tracing::debug!("Processing block {}", evm_block.number().unwrap_or(0));
 
 		let current_block_number = evm_block.number.unwrap_or(U64::from(0)).to::<u64>();
 
@@ -1814,7 +1811,7 @@ mod tests {
 			.build();
 
 		filter.find_matching_functions_for_transaction(
-			&[contract_with_spec.clone()],
+			std::slice::from_ref(&contract_with_spec),
 			&transaction,
 			&monitor,
 			&mut matched_functions,
