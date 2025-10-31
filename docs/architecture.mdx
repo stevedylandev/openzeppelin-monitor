@@ -117,6 +117,7 @@ graph TD
         CP[ClientPool]
         EVMC[EVMClient]
         SC[StellarClient]
+        MC[MidnightClient]
     end
 
     %% Initialization Flow
@@ -138,6 +139,7 @@ graph TD
     %% Client Dependencies
     CP --> EVMC
     CP --> SC
+    CP --> MC
     BWS --> CP
 
     %% Service Dependencies
@@ -160,7 +162,7 @@ graph TD
 
     class BT,BS,BWS,BH blockProcessing
     class MS,NS,TS,FS,TES,NOTS coreServices
-    class CP,EVMC,SC clients
+    class CP,EVMC,SC,MC clients
 ```
 
 ### Core Components
@@ -176,6 +178,7 @@ graph TD
 * ***ClientPool***: Manages blockchain client instances and provides network connectivity with connection pooling and failover capabilities.
 * ***EVMClient***: Handles communication with Ethereum Virtual Machine compatible networks (Ethereum, Polygon, BSC, etc.).
 * ***StellarClient***: Manages connections to Stellar blockchain networks with protocol-specific optimizations.
+* ***MidnightClient***: Manages connections to Midnight blockchain networks with WebSocket transport and Substrate-based architecture.
 
 #### Processing Pipeline Components
 
