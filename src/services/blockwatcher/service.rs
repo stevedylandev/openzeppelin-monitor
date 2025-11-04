@@ -20,7 +20,7 @@ use crate::{
 		blockwatcher::{
 			error::BlockWatcherError,
 			storage::BlockStorage,
-			tracker::{BlockTracker, BlockTrackerTrait},
+			tracker::{BlockCheckResult, BlockTracker, BlockTrackerTrait},
 		},
 	},
 };
@@ -77,7 +77,7 @@ where
 	pub block_handler: Arc<H>,
 	pub trigger_handler: Arc<T>,
 	pub scheduler: J,
-	pub block_tracker: Arc<BlockTracker<S>>,
+	pub block_tracker: Arc<BlockTracker>,
 }
 
 /// Map of active block watchers
@@ -101,7 +101,7 @@ where
 	pub block_handler: Arc<H>,
 	pub trigger_handler: Arc<T>,
 	pub active_watchers: Arc<RwLock<BlockWatchersMap<S, H, T, J>>>,
-	pub block_tracker: Arc<BlockTracker<S>>,
+	pub block_tracker: Arc<BlockTracker>,
 }
 
 impl<S, H, T, J> NetworkBlockWatcher<S, H, T, J>
@@ -125,7 +125,7 @@ where
 		block_storage: Arc<S>,
 		block_handler: Arc<H>,
 		trigger_handler: Arc<T>,
-		block_tracker: Arc<BlockTracker<S>>,
+		block_tracker: Arc<BlockTracker>,
 	) -> Result<Self, BlockWatcherError> {
 		let scheduler = J::new().await.map_err(|e| {
 			BlockWatcherError::scheduler_error(
@@ -255,7 +255,7 @@ where
 		block_storage: Arc<S>,
 		block_handler: Arc<H>,
 		trigger_handler: Arc<T>,
-		block_tracker: Arc<BlockTracker<S>>,
+		block_tracker: Arc<BlockTracker>,
 	) -> Result<Self, BlockWatcherError> {
 		Ok(BlockWatcherService {
 			block_storage,
@@ -333,7 +333,7 @@ pub async fn process_new_blocks<
 	C: BlockChainClient + Send + Clone + 'static,
 	H: Fn(BlockType, Network) -> BoxFuture<'static, ProcessedBlock> + Send + Sync + 'static,
 	T: Fn(&ProcessedBlock) -> tokio::task::JoinHandle<()> + Send + Sync + 'static,
-	TR: BlockTrackerTrait<S>,
+	TR: BlockTrackerTrait + Send + Sync + 'static,
 >(
 	network: &Network,
 	rpc_client: &C,
@@ -403,6 +403,34 @@ pub async fn process_new_blocks<
 			})?;
 	}
 
+	// Reset expected_next to start_block to ensure synchronization with this execution
+	// This prevents false out-of-order warnings when reprocessing blocks or restarting
+	block_tracker
+		.reset_expected_next(network, start_block)
+		.await;
+
+	// Detect missing blocks using BlockTracker
+	let missed_blocks = block_tracker.detect_missing_blocks(network, &blocks).await;
+
+	// Log and save missed blocks if any
+	if !missed_blocks.is_empty() {
+		tracing::error!(
+			network = %network.slug,
+			count = missed_blocks.len(),
+			"Missed {} blocks: {:?}",
+			missed_blocks.len(),
+			missed_blocks
+		);
+
+		// Save missed blocks in batch
+		if network.store_blocks.unwrap_or(false) {
+			block_storage
+				.save_missed_blocks(&network.slug, &missed_blocks)
+				.await
+				.with_context(|| format!("Failed to save {} missed blocks", missed_blocks.len()))?;
+		}
+	}
+
 	// Create channels for our pipeline
 	let (process_tx, process_rx) = mpsc::channel::<(BlockType, u64)>(blocks.len() * 2);
 	let (trigger_tx, trigger_rx) = mpsc::channel::<ProcessedBlock>(blocks.len() * 2);
@@ -437,21 +465,60 @@ pub async fn process_new_blocks<
 
 	// Stage 2: Trigger Pipeline
 	let trigger_handle = tokio::spawn({
+		let network = network.clone();
 		let trigger_handler = trigger_handler.clone();
+		let block_tracker = block_tracker.clone();
 
 		async move {
 			let mut trigger_rx = trigger_rx;
 			let mut pending_blocks = BTreeMap::new();
 			let mut next_block_number = Some(start_block);
+			let block_tracker = block_tracker.clone();
 
 			// Process all incoming blocks
 			while let Some(processed_block) = trigger_rx.next().await {
 				let block_number = processed_block.block_number;
+
+				// Buffer the block - we'll check and execute in order
 				pending_blocks.insert(block_number, processed_block);
 
 				// Process blocks in order as long as we have the next expected block
 				while let Some(expected) = next_block_number {
 					if let Some(block) = pending_blocks.remove(&expected) {
+						// Check for duplicate or out-of-order blocks when actually executing
+						// This ensures we're checking the execution order, not arrival order
+						match block_tracker
+							.check_processed_block(&network, expected)
+							.await
+						{
+							BlockCheckResult::Ok => {
+								// Block is valid, execute it
+							}
+							BlockCheckResult::Duplicate { last_seen } => {
+								tracing::error!(
+									network = %network.slug,
+									block_number = expected,
+									last_seen = last_seen,
+									"Duplicate block detected: received block {} again (last seen: {})",
+									expected,
+									last_seen
+								);
+							}
+							BlockCheckResult::OutOfOrder {
+								expected: exp,
+								received,
+							} => {
+								tracing::warn!(
+									network = %network.slug,
+									block_number = received,
+									expected = exp,
+									"Out of order block detected: received {} but expected {}",
+									received,
+									exp
+								);
+							}
+						}
+
 						(trigger_handler)(&block);
 						next_block_number = Some(expected + 1);
 					} else {
@@ -463,6 +530,39 @@ pub async fn process_new_blocks<
 			// Process any remaining blocks in order after the channel is closed
 			while let Some(min_block) = pending_blocks.keys().next().copied() {
 				if let Some(block) = pending_blocks.remove(&min_block) {
+					// Check for duplicate or out-of-order blocks when executing
+					match block_tracker
+						.check_processed_block(&network, min_block)
+						.await
+					{
+						BlockCheckResult::Ok => {
+							// Block is valid, execute it
+						}
+						BlockCheckResult::Duplicate { last_seen } => {
+							tracing::error!(
+								network = %network.slug,
+								block_number = min_block,
+								last_seen = last_seen,
+								"Duplicate block detected: received block {} again (last seen: {})",
+								min_block,
+								last_seen
+							);
+						}
+						BlockCheckResult::OutOfOrder {
+							expected: exp,
+							received,
+						} => {
+							tracing::warn!(
+								network = %network.slug,
+								block_number = received,
+								expected = exp,
+								"Out of order block detected: received {} but expected {}",
+								received,
+								exp
+							);
+						}
+					}
+
 					(trigger_handler)(&block);
 				}
 			}
@@ -472,14 +572,9 @@ pub async fn process_new_blocks<
 
 	// Feed blocks into the pipeline
 	futures::future::join_all(blocks.iter().map(|block| {
-		let network = network.clone();
-		let block_tracker = block_tracker.clone();
 		let mut process_tx = process_tx.clone();
 		async move {
 			let block_number = block.number().unwrap_or(0);
-
-			// Record block in tracker
-			block_tracker.record_block(&network, block_number).await?;
 
 			// Send block to processing pipeline
 			process_tx
